@@ -42,9 +42,7 @@ var (
 )
 
 func initDB() {
-	// ЖЁСТКО ПРОПИСАННАЯ СТРОКА ПОДКЛЮЧЕНИЯ (IPv4-совместимая, Session pooler)
 	connStr := "postgresql://postgres.qxtpzmqglvxjahodmsxb:ki0Iz1aJ8WfSBC3n@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require"
-
 	log.Println("DB: connecting with hardcoded DATABASE_URL")
 	var err error
 	db, err = sql.Open("postgres", connStr)
@@ -121,18 +119,24 @@ func main() {
 	http.HandleFunc("/api/file/", fileHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
 
-	spaHandler := http.FileServer(http.Dir("dist"))
+	// Раздача статики из папки dist
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws") || strings.HasPrefix(r.URL.Path, "/upload") {
+		if strings.HasPrefix(r.URL.Path, "/api/") ||
+			strings.HasPrefix(r.URL.Path, "/ws") ||
+			strings.HasPrefix(r.URL.Path, "/upload") {
 			http.NotFound(w, r)
 			return
 		}
-		if _, err := os.Stat("dist" + r.URL.Path); err == nil {
-			spaHandler.ServeHTTP(w, r)
+		// Пробуем отдать файл
+		path := filepath.Join("dist", r.URL.Path)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			http.ServeFile(w, r, path)
 			return
 		}
+		// Иначе index.html
 		http.ServeFile(w, r, "dist/index.html")
 	})
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
