@@ -109,33 +109,29 @@ func loadHistory() []Message {
 	return msgs
 }
 
+// CORS middleware
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		next(w, r)
+	}
+}
+
 func main() {
 	initDB()
 	defer db.Close()
 	go handleMessages()
 
-	http.HandleFunc("/ws", wsHandler)
-	http.HandleFunc("/upload", uploadHandler)
-	http.HandleFunc("/api/file/", fileHandler)
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
-
-	// Раздача статики из папки dist
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") ||
-			strings.HasPrefix(r.URL.Path, "/ws") ||
-			strings.HasPrefix(r.URL.Path, "/upload") {
-			http.NotFound(w, r)
-			return
-		}
-		// Пробуем отдать файл
-		path := filepath.Join("dist", r.URL.Path)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			http.ServeFile(w, r, path)
-			return
-		}
-		// Иначе index.html
-		http.ServeFile(w, r, "dist/index.html")
-	})
+	http.HandleFunc("/ws", corsMiddleware(wsHandler))
+	http.HandleFunc("/upload", corsMiddleware(uploadHandler))
+	http.HandleFunc("/api/file/", corsMiddleware(fileHandler))
+	http.HandleFunc("/health", corsMiddleware(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) }))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -145,6 +141,7 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
+// --- WebSocket handler (без изменений) ---
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
