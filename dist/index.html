@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Limited Chat 99">
+    <title>Limited Chat 99</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon98-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon98-512.png">
+    <link rel="apple-touch-icon" href="/icon98-192.png">
+    <script type="module" crossorigin src="/assets/index-DxM9Pgyy.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DyKXEpUU.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Кнопка установки PWA (скрыта по умолчанию) -->
+    <button id="installBtn" style="position: fixed; bottom: 20px; right: 20px; z-index: 1000; padding: 12px 24px; background-color: #4CAF50; color: white; border: none; border-radius: 30px; font-size: 16px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.2); display: none;">
+        📱 Установить приложение
+    </button>
+
+    <script>
+        (function() {
+            let deferredPrompt = null;
+            const installBtn = document.getElementById('installBtn');
+
+            if (window.matchMedia('(display-mode: standalone)').matches) {
+                if (installBtn) installBtn.style.display = 'none';
+                return;
+            }
+
+            if ('getInstalledRelatedApps' in navigator) {
+                navigator.getInstalledRelatedApps().then(relatedApps => {
+                    const installed = relatedApps.some(app => app.platform === 'webapp');
+                    if (installed && installBtn) installBtn.style.display = 'none';
+                }).catch(() => {});
+            }
+
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                if (installBtn) installBtn.style.display = 'block';
+            });
+
+            if (installBtn) {
+                installBtn.addEventListener('click', async () => {
+                    if (!deferredPrompt) return;
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    console.log('Install prompt outcome:', outcome);
+                    deferredPrompt = null;
+                    installBtn.style.display = 'none';
+                });
+            }
+
+            const isIOSSafari = /iP(ad|hone|od).+Version\/[\d\.]+.*Safari/i.test(navigator.userAgent);
+            if (isIOSSafari && installBtn) {
+                installBtn.textContent = '📲 Как установить (iOS)';
+                installBtn.onclick = () => {
+                    alert('Нажмите "Поделиться" → "На экран «Домой»"');
+                };
+                installBtn.style.display = 'block';
+            }
+        })();
+    </script>
+  </body>
+</html>
