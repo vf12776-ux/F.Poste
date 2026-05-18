@@ -42,7 +42,7 @@ var (
 )
 
 func initDB() {
-	connStr := "postgresql://postgres:Palermo4120221975@db.ibwuozucqkeylykndign.supabase.co:5432/postgres?sslmode=require"
+	connStr := "postgresql://postgres.ibwuozucqkeylykndign:Palermo4120221975@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require"
 	log.Println("DB: connecting with hardcoded DATABASE_URL")
 	var err error
 	db, err = sql.Open("postgres", connStr)
