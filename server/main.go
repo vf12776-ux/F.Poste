@@ -42,8 +42,13 @@ var (
 )
 
 func initDB() {
-	connStr := "postgresql://postgres.ibwuozucqkeylykndign:Palermo05031975412022@aws-0-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require"
-	log.Println("DB: connecting with hardcoded DATABASE_URL")
+	// Берём строку подключения из переменной окружения DATABASE_URL
+	connStr := os.Getenv("DATABASE_URL")
+	if connStr == "" {
+		log.Fatal("FATAL: DATABASE_URL environment variable not set")
+	}
+	log.Println("DB: connecting from env DATABASE_URL")
+
 	var err error
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
@@ -55,16 +60,16 @@ func initDB() {
 	log.Println("DB: connected and ping successful")
 
 	createTableSQL := `
-	CREATE TABLE IF NOT EXISTS messages (
-		id TEXT PRIMARY KEY,
-		username TEXT,
-		text TEXT,
-		is_file BOOLEAN,
-		file_name TEXT,
-		file_data BYTEA,
-		type TEXT,
-		timestamp BIGINT
-	)`
+    CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        username TEXT,
+        text TEXT,
+        is_file BOOLEAN,
+        file_name TEXT,
+        file_data BYTEA,
+        type TEXT,
+        timestamp BIGINT
+    )`
 	if _, err = db.Exec(createTableSQL); err != nil {
 		log.Fatal("FATAL: failed to create table: ", err)
 	}
