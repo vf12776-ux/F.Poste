@@ -1,5 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
 
+async function subscribeToPush(username: string) {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+    const registration = await navigator.serviceWorker.ready;
+    const resp = await fetch('/api/vapid-public-key');
+    const publicKey = await resp.text();
+    const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+    });
+    await fetch('/api/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            userId: username,
+            endpoint: subscription.endpoint,
+            keys: subscription.toJSON().keys,
+        }),
+    });
+}
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+}
+
 const Chat: React.FC<{ username: string }> = ({ username }) => {
     const [ws, setWs] = useState<WebSocket | null>(null);
     const [messages, setMessages] = useState<any[]>([]);
@@ -80,6 +111,12 @@ const Chat: React.FC<{ username: string }> = ({ username }) => {
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
+
+    useEffect(() => {
+        if (username) {
+            subscribeToPush(username);
+        }
+    }, [username]);
 
     const sendMessage = () => {
         if (!inputText.trim()) return;
@@ -228,16 +265,16 @@ const Chat: React.FC<{ username: string }> = ({ username }) => {
                             </div>
                             <div className="message-content">
                                 {msg.isFile ? (
-    msg.fileUrl ? (
-        msg.fileName?.match(/\.(jpg|jpeg|png|gif)$/i) ? (
-            <img src={msg.fileUrl} alt="file" className="file-image" />
-        ) : msg.fileName?.match(/\.webm$/i) ? (
-            <audio controls src={msg.fileUrl} className="audio-player" />
-        ) : (
-            <a href={msg.fileUrl} download={msg.fileName}>{msg.fileName}</a>
-        )
-    ) : <span>Загрузка...</span>
-) : <p>{msg.text}</p>}
+                                    msg.fileUrl ? (
+                                        msg.fileName?.match(/\.(jpg|jpeg|png|gif)$/i) ? (
+                                            <img src={msg.fileUrl} alt="file" className="file-image" />
+                                        ) : msg.fileName?.match(/\.webm$/i) ? (
+                                            <audio controls src={msg.fileUrl} className="audio-player" />
+                                        ) : (
+                                            <a href={msg.fileUrl} download={msg.fileName}>{msg.fileName}</a>
+                                        )
+                                    ) : <span>Загрузка...</span>
+                                ) : <p>{msg.text}</p>}
                             </div>
                         </div>
                     ))}
