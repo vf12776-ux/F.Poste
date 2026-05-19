@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
@@ -34,6 +36,12 @@ type Client struct {
 	username string
 }
 
+type pushSubscription struct {
+	Endpoint string
+	P256dh   string
+	Auth     string
+}
+
 var (
 	clients   = make(map[*Client]bool)
 	mu        sync.Mutex
@@ -41,8 +49,12 @@ var (
 	db        *sql.DB
 )
 
+// VAPID ключи (сгенерированные)
+var vapidPublicKey = "BPunLLSwkpqRZX5OZBpDufXebllyXDc8fZkFtrlPcT7R3OoVOGAJW4qg9Sc241CPtLMajpkIBQw8FzQkJjL0oOU"
+var vapidPrivateKey = "OjbBHeoyM4t0PWiJljFq7E2ATW3hW9yM1uVYbU6XotU"
+var contactEmail = "vf12776@gmail.com"
+
 func initDB() {
-	// Берём строку подключения из переменной окружения DATABASE_URL
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
 		log.Fatal("FATAL: DATABASE_URL environment variable not set")
@@ -60,20 +72,33 @@ func initDB() {
 	log.Println("DB: connected and ping successful")
 
 	createTableSQL := `
-    CREATE TABLE IF NOT EXISTS messages (
-        id TEXT PRIMARY KEY,
-        username TEXT,
-        text TEXT,
-        is_file BOOLEAN,
-        file_name TEXT,
-        file_data BYTEA,
-        type TEXT,
-        timestamp BIGINT
-    )`
+	CREATE TABLE IF NOT EXISTS messages (
+		id TEXT PRIMARY KEY,
+		username TEXT,
+		text TEXT,
+		is_file BOOLEAN,
+		file_name TEXT,
+		file_data BYTEA,
+		type TEXT,
+		timestamp BIGINT
+	)`
 	if _, err = db.Exec(createTableSQL); err != nil {
-		log.Fatal("FATAL: failed to create table: ", err)
+		log.Fatal("FATAL: failed to create messages table: ", err)
 	}
 	log.Println("DB: table 'messages' ready")
+
+	createPushTableSQL := `
+	CREATE TABLE IF NOT EXISTS push_subscriptions (
+		id SERIAL PRIMARY KEY,
+		user_id TEXT NOT NULL,
+		endpoint TEXT NOT NULL UNIQUE,
+		p256dh TEXT NOT NULL,
+		auth TEXT NOT NULL,
+		created_at TIMESTAMPTZ DEFAULT NOW()
+	)`
+	if _, err = db.Exec(createPushTableSQL); err != nil {
+		log.Printf("WARN: failed to create push_subscriptions table: %v", err)
+	}
 }
 
 func saveMessageToDB(m Message, fileData []byte) error {
@@ -114,35 +139,89 @@ func loadHistory() []Message {
 	return msgs
 }
 
+func sendPushNotification(sub pushSubscription, title, body string) {
+	s := &webpush.Subscription{
+		Endpoint: sub.Endpoint,
+		Keys: webpush.Keys{
+			P256dh: sub.P256dh,
+			Auth:   sub.Auth,
+		},
+	}
+	payload := map[string]string{"title": title, "body": body}
+	payloadBytes, _ := json.Marshal(payload)
+
+	_, err := webpush.SendNotification(payloadBytes, s, &webpush.Options{
+		Subscriber:      contactEmail,
+		VAPIDPublicKey:  vapidPublicKey,
+		VAPIDPrivateKey: vapidPrivateKey,
+		TTL:             30,
+	})
+	if err != nil {
+		log.Printf("Push error for %s: %v", sub.Endpoint, err)
+	}
+}
+
+func subscribeHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		UserID   string `json:"userId"`
+		Endpoint string `json:"endpoint"`
+		Keys     struct {
+			P256dh string `json:"p256dh"`
+			Auth   string `json:"auth"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if req.UserID == "" || req.Endpoint == "" {
+		http.Error(w, "Missing fields", http.StatusBadRequest)
+		return
+	}
+	_, err := db.Exec(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4)
+		ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id`,
+		req.UserID, req.Endpoint, req.Keys.P256dh, req.Keys.Auth)
+	if err != nil {
+		log.Printf("DB error saving subscription: %v", err)
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func main() {
 	initDB()
 	defer db.Close()
 	go handleMessages()
 
-	// API и WebSocket маршруты
+	// API endpoints
 	http.HandleFunc("/ws", wsHandler)
 	http.HandleFunc("/upload", uploadHandler)
 	http.HandleFunc("/api/file/", fileHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
+	http.HandleFunc("/api/vapid-public-key", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(vapidPublicKey))
+	})
+	http.HandleFunc("/api/subscribe", subscribeHandler)
 
-	// Обслуживание статики из папки ../dist (на уровень выше)
-	spaHandler := http.FileServer(http.Dir("../dist"))
+	// SPA static files (dist)
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Не трогаем API-маршруты
 		if strings.HasPrefix(r.URL.Path, "/api/") ||
 			strings.HasPrefix(r.URL.Path, "/ws") ||
 			strings.HasPrefix(r.URL.Path, "/upload") {
 			http.NotFound(w, r)
 			return
 		}
-		// Пытаемся отдать файл из dist
-		path := filepath.Join("../dist", r.URL.Path)
-		if _, err := os.Stat(path); err == nil {
-			spaHandler.ServeHTTP(w, r)
+		path := filepath.Join("dist", r.URL.Path)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			http.ServeFile(w, r, path)
 			return
 		}
-		// Иначе отдаём index.html (для SPA)
-		http.ServeFile(w, r, "../dist/index.html")
+		http.ServeFile(w, r, "dist/index.html")
 	})
 
 	port := os.Getenv("PORT")
@@ -152,9 +231,6 @@ func main() {
 	log.Printf("Server started on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
-
-// ----- Остальные функции без изменений (wsHandler, handleMessages, uploadHandler, fileHandler) -----
-// Ниже они приведены полностью, чтобы код был цельным.
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -198,6 +274,29 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 			saveMessageToDB(incoming, nil)
 			conn.WriteJSON(Message{Type: "ack", ID: incoming.ID})
 			broadcast <- incoming
+
+			// Отправка push-уведомлений всем, кроме отправителя
+			go func(sender string, msg Message) {
+				rows, err := db.Query(`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id != $1`, sender)
+				if err != nil {
+					log.Printf("Push query error: %v", err)
+					return
+				}
+				defer rows.Close()
+				for rows.Next() {
+					var sub pushSubscription
+					if err := rows.Scan(&sub.Endpoint, &sub.P256dh, &sub.Auth); err != nil {
+						continue
+					}
+					title := msg.Username
+					body := msg.Text
+					if msg.IsFile {
+						body = "📎 " + msg.FileName
+					}
+					sendPushNotification(sub, title, body)
+				}
+			}(client.username, incoming)
+
 		} else if incoming.Type == "delete" {
 			var author string
 			db.QueryRow("SELECT username FROM messages WHERE id=$1", incoming.ID).Scan(&author)
@@ -242,7 +341,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "username required", http.StatusBadRequest)
 		return
 	}
-	err := r.ParseMultipartForm(10 << 20) // 10 MB max
+	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
 		http.Error(w, "File too large", http.StatusBadRequest)
 		return
@@ -284,14 +383,13 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ext := strings.ToLower(filepath.Ext(fileName))
 	ctype := "application/octet-stream"
-	switch ext {
-	case ".jpg", ".jpeg":
+	if ext == ".jpg" || ext == ".jpeg" {
 		ctype = "image/jpeg"
-	case ".png":
+	} else if ext == ".png" {
 		ctype = "image/png"
-	case ".gif":
+	} else if ext == ".gif" {
 		ctype = "image/gif"
-	case ".webm":
+	} else if ext == ".webm" {
 		ctype = "audio/webm"
 	}
 	w.Header().Set("Content-Type", ctype)
