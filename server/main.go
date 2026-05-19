@@ -242,7 +242,11 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "username required", http.StatusBadRequest)
 		return
 	}
-	r.ParseMultipartForm(10 << 20)
+	err := r.ParseMultipartForm(10 << 20) // 10 MB max
+	if err != nil {
+		http.Error(w, "File too large", http.StatusBadRequest)
+		return
+	}
 	file, handler, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "File error", http.StatusBadRequest)
@@ -280,13 +284,14 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	ext := strings.ToLower(filepath.Ext(fileName))
 	ctype := "application/octet-stream"
-	if ext == ".jpg" || ext == ".jpeg" {
+	switch ext {
+	case ".jpg", ".jpeg":
 		ctype = "image/jpeg"
-	} else if ext == ".png" {
+	case ".png":
 		ctype = "image/png"
-	} else if ext == ".gif" {
+	case ".gif":
 		ctype = "image/gif"
-	} else if ext == ".webm" {
+	case ".webm":
 		ctype = "audio/webm"
 	}
 	w.Header().Set("Content-Type", ctype)
