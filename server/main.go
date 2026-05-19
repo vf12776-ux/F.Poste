@@ -50,8 +50,8 @@ var (
 )
 
 // VAPID ключи (сгенерированные)
-var vapidPublicKey = "BPunLLSwkpqRZX5OZBpDufXebllyXDc8fZkFtrlPcT7R3OoVOGAJW4qg9Sc241CPtLMajpkIBQw8FzQkJjL0oOU"
-var vapidPrivateKey = "OjbBHeoyM4t0PWiJljFq7E2ATW3hW9yM1uVYbU6XotU"
+var vapidPublicKey = "BF3Ley-6RMmTycWc-8N-H8Gb8pyLfrC9HGyK8pg-nH1tKkUxLRq_Pr70O-OwDuUXCdRR1hNbtDzrtEARqamXNyI"
+var vapidPrivateKey = "Q-c-3Q4OuyOPaAQxIqYgZWb4VxIuwwUCqfMhSU1tnKs"
 var contactEmail = "vf12776@gmail.com"
 
 func initDB() {
