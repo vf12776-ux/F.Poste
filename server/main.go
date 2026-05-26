@@ -216,12 +216,12 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		path := filepath.Join("../dist", r.URL.Path)
+		path := filepath.Join("dist", r.URL.Path)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
 			http.ServeFile(w, r, path)
 			return
 		}
-		http.ServeFile(w, r, "../dist/index.html")
+		http.ServeFile(w, r, "dist/index.html")
 	})
 
 	port := os.Getenv("PORT")
