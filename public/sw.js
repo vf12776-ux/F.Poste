@@ -1,4 +1,4 @@
-const CACHE_NAME = 'chat-pwa-v1';
+const CACHE_NAME = 'chat-pwa-v2';
 const urlsToCache = [
   '/',
   '/index.html',
