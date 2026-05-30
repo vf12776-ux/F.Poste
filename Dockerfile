@@ -1,9 +1,9 @@
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
-COPY go.mod go.sum ./
+COPY server server
+WORKDIR /app/server
 RUN go mod download
-COPY . .
-RUN go build -o main ./server
+RUN go build -o /app/main .
 
 FROM alpine:latest
 WORKDIR /root/
