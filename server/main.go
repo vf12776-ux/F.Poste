@@ -14,7 +14,7 @@ import (
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/google/uuid"
-	_ "github.com/lib/pq"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 var db *sql.DB
@@ -53,7 +53,7 @@ func initDB() {
 		log.Fatal("FATAL: DATABASE_URL environment variable not set")
 	}
 	var err error
-	db, err = sql.Open("postgres", connStr)
+	db, err = sql.Open("pgx", connStr)
 	if err != nil {
 		log.Fatal("FATAL: sql.Open failed: ", err)
 	}
