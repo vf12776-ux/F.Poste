@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@apinator/client": "^2.0.0",
+    "@supabase/supabase-js": "^2.109.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

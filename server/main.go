@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -9,16 +10,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq"
 )
 
-var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+var db *sql.DB
+
+// VAPID ключи
+var vapidPublicKey = "BF3Ley-6RMmTycWc-8N-H8Gb8pyLfrC9HGyK8pg-nH1tKkUxLRq_Pr70O-OwDuUXCdRR1hNbtDzrtEARqamXNyI"
+var vapidPrivateKey = "Q-c-3Q4OuyOPaAQxIqYgZWb4VxIuwwUCqfMhSU1tnKs"
+var contactEmail = "vf12776@gmail.com"
 
 type Message struct {
 	ID        string `json:"id"`
@@ -31,36 +35,23 @@ type Message struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-type Client struct {
-	conn     *websocket.Conn
-	username string
-}
-
 type pushSubscription struct {
 	Endpoint string
 	P256dh   string
 	Auth     string
 }
 
-var (
-	clients   = make(map[*Client]bool)
-	mu        sync.Mutex
-	broadcast = make(chan Message)
-	db        *sql.DB
+// Apinator конфигурация
+const (
+	apinatorAppID  = "10656abd-ac71-446e-8913-b17e26db7753"
+	apinatorSecret = "651cd74813a0e9d86f72990b7ac65ad79deadfe63f5e0e1062d536462434b6d9"
 )
-
-// VAPID ключи (сгенерированные)
-var vapidPublicKey = "BF3Ley-6RMmTycWc-8N-H8Gb8pyLfrC9HGyK8pg-nH1tKkUxLRq_Pr70O-OwDuUXCdRR1hNbtDzrtEARqamXNyI"
-var vapidPrivateKey = "Q-c-3Q4OuyOPaAQxIqYgZWb4VxIuwwUCqfMhSU1tnKs"
-var contactEmail = "vf12776@gmail.com"
 
 func initDB() {
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
 		log.Fatal("FATAL: DATABASE_URL environment variable not set")
 	}
-	log.Println("DB: connecting from env DATABASE_URL")
-
 	var err error
 	db, err = sql.Open("postgres", connStr)
 	if err != nil {
@@ -69,7 +60,7 @@ func initDB() {
 	if err = db.Ping(); err != nil {
 		log.Fatal("FATAL: database ping failed: ", err)
 	}
-	log.Println("DB: connected and ping successful")
+	log.Println("DB connected")
 
 	createTableSQL := `
 	CREATE TABLE IF NOT EXISTS messages (
@@ -85,7 +76,6 @@ func initDB() {
 	if _, err = db.Exec(createTableSQL); err != nil {
 		log.Fatal("FATAL: failed to create messages table: ", err)
 	}
-	log.Println("DB: table 'messages' ready")
 
 	createPushTableSQL := `
 	CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -102,16 +92,10 @@ func initDB() {
 }
 
 func saveMessageToDB(m Message, fileData []byte) error {
-	log.Printf("DB: saving message id=%s username=%s type=%s", m.ID, m.Username, m.Type)
 	_, err := db.Exec(`
 		INSERT INTO messages(id, username, text, is_file, file_name, file_data, type, timestamp)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
 		m.ID, m.Username, m.Text, m.IsFile, m.FileName, fileData, m.Type, m.Timestamp)
-	if err != nil {
-		log.Printf("DB ERROR: failed to insert message %s: %v", m.ID, err)
-	} else {
-		log.Printf("DB: message %s saved successfully", m.ID)
-	}
 	return err
 }
 
@@ -127,7 +111,6 @@ func loadHistory() []Message {
 		var m Message
 		err := rows.Scan(&m.ID, &m.Username, &m.Text, &m.IsFile, &m.FileName, &m.Type, &m.Timestamp)
 		if err != nil {
-			log.Printf("DB ERROR: loadHistory scan: %v", err)
 			continue
 		}
 		if m.IsFile {
@@ -135,8 +118,31 @@ func loadHistory() []Message {
 		}
 		msgs = append(msgs, m)
 	}
-	log.Printf("DB: loaded %d history messages", len(msgs))
 	return msgs
+}
+
+// Отправка события через Apinator (HTTP API)
+func triggerApinator(event string, data interface{}) error {
+	payload := map[string]interface{}{
+		"event": event,
+		"data":  data,
+	}
+	jsonPayload, _ := json.Marshal(payload)
+	url := "https://api.apinator.io/v1/apps/" + apinatorAppID + "/triggers"
+	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apinatorSecret)
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("Apinator error: %s", body)
+	}
+	return nil
 }
 
 func sendPushNotification(sub pushSubscription, title, body string) {
@@ -149,7 +155,6 @@ func sendPushNotification(sub pushSubscription, title, body string) {
 	}
 	payload := map[string]string{"title": title, "body": body}
 	payloadBytes, _ := json.Marshal(payload)
-
 	_, err := webpush.SendNotification(payloadBytes, s, &webpush.Options{
 		Subscriber:      contactEmail,
 		VAPIDPublicKey:  vapidPublicKey,
@@ -157,7 +162,7 @@ func sendPushNotification(sub pushSubscription, title, body string) {
 		TTL:             30,
 	})
 	if err != nil {
-		log.Printf("Push error for %s: %v", sub.Endpoint, err)
+		log.Printf("Push error: %v", err)
 	}
 }
 
@@ -178,10 +183,6 @@ func subscribeHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	if req.UserID == "" || req.Endpoint == "" {
-		http.Error(w, "Missing fields", http.StatusBadRequest)
-		return
-	}
 	_, err := db.Exec(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4)
 		ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id`,
 		req.UserID, req.Endpoint, req.Keys.P256dh, req.Keys.Auth)
@@ -193,142 +194,115 @@ func subscribeHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func main() {
-	initDB()
-	defer db.Close()
-	go handleMessages()
-
-	// API endpoints
-	http.HandleFunc("/ws", wsHandler)
-	http.HandleFunc("/upload", uploadHandler)
-	http.HandleFunc("/api/file/", fileHandler)
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
-	http.HandleFunc("/api/vapid-public-key", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(vapidPublicKey))
-	})
-	http.HandleFunc("/api/subscribe", subscribeHandler)
-
-	// SPA static files (dist)
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") ||
-			strings.HasPrefix(r.URL.Path, "/ws") ||
-			strings.HasPrefix(r.URL.Path, "/upload") {
-			http.NotFound(w, r)
-			return
-		}
-		path := filepath.Join("dist", r.URL.Path)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			http.ServeFile(w, r, path)
-			return
-		}
-		http.ServeFile(w, r, "dist/index.html")
-	})
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-	log.Printf("Server started on :%s", port)
-	log.Fatal(http.ListenAndServe(":"+port, nil))
-}
-
-func wsHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
+func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	defer conn.Close()
-
-	var initMsg Message
-	if err := conn.ReadJSON(&initMsg); err != nil || initMsg.Type != "hello" || initMsg.Username == "" {
+	var req struct {
+		Username string `json:"username"`
+		Text     string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-
-	client := &Client{conn: conn, username: initMsg.Username}
-	mu.Lock()
-	clients[client] = true
-	mu.Unlock()
-
-	for _, msg := range loadHistory() {
-		conn.WriteJSON(msg)
+	msg := Message{
+		ID:        uuid.New().String(),
+		Username:  req.Username,
+		Text:      req.Text,
+		IsFile:    false,
+		Type:      "msg",
+		Timestamp: time.Now().Unix(),
 	}
+	if err := saveMessageToDB(msg, nil); err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	go triggerApinator("new_message", msg)
 
-	for {
-		var incoming Message
-		err := conn.ReadJSON(&incoming)
+	go func(sender string, msg Message) {
+		rows, err := db.Query(`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id != $1`, sender)
 		if err != nil {
-			mu.Lock()
-			delete(clients, client)
-			mu.Unlock()
-			break
+			return
 		}
-		incoming.Username = client.username
-		if incoming.ID == "" {
-			incoming.ID = uuid.New().String()
-		}
-		if incoming.Timestamp == 0 {
-			incoming.Timestamp = time.Now().Unix()
-		}
-
-		if incoming.Type == "msg" {
-			saveMessageToDB(incoming, nil)
-			conn.WriteJSON(Message{Type: "ack", ID: incoming.ID})
-			broadcast <- incoming
-
-			// Отправка push-уведомлений всем, кроме отправителя
-			go func(sender string, msg Message) {
-				rows, err := db.Query(`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id != $1`, sender)
-				if err != nil {
-					log.Printf("Push query error: %v", err)
-					return
-				}
-				defer rows.Close()
-				for rows.Next() {
-					var sub pushSubscription
-					if err := rows.Scan(&sub.Endpoint, &sub.P256dh, &sub.Auth); err != nil {
-						continue
-					}
-					title := msg.Username
-					body := msg.Text
-					if msg.IsFile {
-						body = "📎 " + msg.FileName
-					}
-					sendPushNotification(sub, title, body)
-				}
-			}(client.username, incoming)
-
-		} else if incoming.Type == "delete" {
-			var author string
-			db.QueryRow("SELECT username FROM messages WHERE id=$1", incoming.ID).Scan(&author)
-			if author == client.username {
-				db.Exec("DELETE FROM messages WHERE id=$1", incoming.ID)
-				mu.Lock()
-				for c := range clients {
-					c.conn.WriteJSON(Message{Type: "delete", ID: incoming.ID})
-				}
-				mu.Unlock()
+		defer rows.Close()
+		for rows.Next() {
+			var sub pushSubscription
+			if err := rows.Scan(&sub.Endpoint, &sub.P256dh, &sub.Auth); err != nil {
+				continue
 			}
-		} else if incoming.Type == "clear_chat" {
-			if client.username != "" {
-				db.Exec("DELETE FROM messages")
-				mu.Lock()
-				for c := range clients {
-					c.conn.WriteJSON(Message{Type: "clear_chat"})
-				}
-				mu.Unlock()
-			}
+			title := msg.Username
+			body := msg.Text
+			sendPushNotification(sub, title, body)
 		}
-	}
+	}(req.Username, msg)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "id": msg.ID})
 }
 
-func handleMessages() {
-	for msg := range broadcast {
-		mu.Lock()
-		for c := range clients {
-			c.conn.WriteJSON(msg)
-		}
-		mu.Unlock()
+func historyHandler(w http.ResponseWriter, r *http.Request) {
+	messages := loadHistory()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(messages)
+}
+
+func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
+	var req struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	var author string
+	err := db.QueryRow("SELECT username FROM messages WHERE id=$1", req.ID).Scan(&author)
+	if err != nil {
+		http.Error(w, "Message not found", http.StatusNotFound)
+		return
+	}
+	if author != req.Username {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	_, err = db.Exec("DELETE FROM messages WHERE id=$1", req.ID)
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	go triggerApinator("delete_message", map[string]string{"id": req.ID})
+	w.WriteHeader(http.StatusOK)
+}
+
+func clearChatHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Username == "" {
+		http.Error(w, "Username required", http.StatusBadRequest)
+		return
+	}
+	_, err := db.Exec("DELETE FROM messages")
+	if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	go triggerApinator("clear_chat", nil)
+	w.WriteHeader(http.StatusOK)
 }
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
@@ -368,7 +342,7 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	saveMessageToDB(msg, data)
 	msg.FileUrl = "/api/file/" + msg.ID
-	broadcast <- msg
+	go triggerApinator("new_message", msg)
 	w.Write([]byte(msg.FileUrl))
 }
 
@@ -394,4 +368,42 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", ctype)
 	w.Write(data)
+}
+
+func main() {
+	initDB()
+	defer db.Close()
+
+	http.HandleFunc("/api/send", sendMessageHandler)
+	http.HandleFunc("/api/messages", historyHandler)
+	http.HandleFunc("/api/delete", deleteMessageHandler)
+	http.HandleFunc("/api/clear", clearChatHandler)
+	http.HandleFunc("/upload", uploadHandler)
+	http.HandleFunc("/api/file/", fileHandler)
+	http.HandleFunc("/api/vapid-public-key", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(vapidPublicKey))
+	})
+	http.HandleFunc("/api/subscribe", subscribeHandler)
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
+
+	// SPA static files (dist)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/upload") {
+			http.NotFound(w, r)
+			return
+		}
+		path := filepath.Join("dist", r.URL.Path)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			http.ServeFile(w, r, path)
+			return
+		}
+		http.ServeFile(w, r, "dist/index.html")
+	})
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Printf("Server started on :%s", port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
