@@ -392,11 +392,25 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
+
+		// Для index.html и корня запрещаем кэширование
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
+			http.ServeFile(w, r, "dist/index.html")
+			return
+		}
+
 		path := filepath.Join("dist", r.URL.Path)
 		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 			http.ServeFile(w, r, path)
 			return
 		}
+
+		// Fallback для SPA роутинга
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		http.ServeFile(w, r, "dist/index.html")
 	})
 
