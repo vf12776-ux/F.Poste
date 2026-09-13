@@ -1,35 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Chat from './Chat';
+import LoginScreen from './components/LoginScreen';
+import { getMe } from './api';
 
 const App: React.FC = () => {
   const [username, setUsername] = useState<string | null>(null);
-  const [inputName, setInputName] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  const handleJoin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inputName.trim()) {
-      setUsername(inputName.trim());
+  useEffect(() => {
+    const token = localStorage.getItem('fposte_token');
+    if (!token) {
+      setLoading(false);
+      return;
     }
-  };
+    
+    getMe()
+      .then((user) => {
+        setUsername(user.username);
+        setLoading(false);
+      })
+      .catch(() => {
+        localStorage.removeItem('fposte_token');
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Загрузка...</div>;
+  }
 
   if (!username) {
-    return (
-      <div className="login-container">
-        <div className="login-box">
-          <h1>Мессенджер</h1>
-          <form onSubmit={handleJoin}>
-            <input
-              type="text"
-              placeholder="Введите ваше имя"
-              value={inputName}
-              onChange={(e) => setInputName(e.target.value)}
-              autoFocus
-            />
-            <button type="submit">Войти</button>
-          </form>
-        </div>
-      </div>
-    );
+    return <LoginScreen onLogin={() => window.location.reload()} />;
   }
 
   return <Chat username={username} />;
