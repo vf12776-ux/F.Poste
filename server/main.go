@@ -14,7 +14,9 @@ import (
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
-	"github.com/google/uuid"
+	"github.com/google/uuid" // <-- ДОБАВИТЬ ЭТУ СТРОКУ
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -53,11 +55,19 @@ func initDB() {
 	if connStr == "" {
 		log.Fatal("FATAL: DATABASE_URL environment variable not set")
 	}
-	var err error
-	db, err = sql.Open("pgx", connStr)
+
+	// Парсим конфигурацию строки подключения
+	config, err := pgx.ParseConfig(connStr)
 	if err != nil {
-		log.Fatal("FATAL: sql.Open failed: ", err)
+		log.Fatal("FATAL: parse config failed: ", err)
 	}
+
+	// КРИТИЧЕСКИ ВАЖНО: отключаем кэш prepared statements для совместимости с Supabase Pooler (PgBouncer)
+	config.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	// Открываем БД с этой конфигурацией
+	db = stdlib.OpenDB(*config)
+
 	if err = db.Ping(); err != nil {
 		log.Fatal("FATAL: database ping failed: ", err)
 	}
