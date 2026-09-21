@@ -7,21 +7,26 @@ interface Props {
 
 export default function LoginScreen({ onLogin }: Props) {
   const [username, setUsername] = useState('');
-  const [displayName, setDisplayName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    
+    if (username.length < 5) {
+      setError('Минимум 5 символов');
+      return;
+    }
+    
     setLoading(true);
     
     try {
-      const data = await login(username.toLowerCase(), displayName);
+      const data = await login(username.toLowerCase(), username);
       setToken(data.token);
       onLogin();
     } catch (err) {
-      setError('Ошибка входа. Попробуй другое имя.');
+      setError('Ошибка входа. Попробуй другой ник.');
     } finally {
       setLoading(false);
     }
@@ -47,24 +52,11 @@ export default function LoginScreen({ onLogin }: Props) {
       }}>
         <input
           type="text"
-          placeholder="Имя пользователя (латиница)"
+          placeholder="Введите ник (латиница, мин. 5 символов)"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          pattern="[a-z0-9_]+"
           required
-          style={{
-            padding: '12px',
-            fontSize: '16px',
-            border: '1px solid #ddd',
-            borderRadius: '8px'
-          }}
-        />
-        <input
-          type="text"
-          placeholder="Отображаемое имя"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          required
+          autoFocus
           style={{
             padding: '12px',
             fontSize: '16px',
