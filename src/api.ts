@@ -1,52 +1,70 @@
 const API_BASE = '';
 
-function getToken(): string | null {
-  return localStorage.getItem('fposte_token');
-}
-
 export function setToken(token: string) {
   localStorage.setItem('fposte_token', token);
+}
+
+export function getToken(): string | null {
+  return localStorage.getItem('fposte_token');
 }
 
 export function clearToken() {
   localStorage.removeItem('fposte_token');
 }
 
-export async function apiFetch(path: string, options: RequestInit = {}) {
+async function apiRequest(endpoint: string, options: RequestInit = {}) {
   const token = getToken();
-  const headers = new Headers(options.headers || {});
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
-  if (!(options.body instanceof FormData)) {
-    headers.set('Content-Type', 'application/json');
-  }
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...(token && { Authorization: `Bearer ${token}` }),
+    ...options.headers,
+  };
+
+  const response = await fetch(API_BASE + endpoint, { ...options, headers });
   
-  const res = await fetch(API_BASE + path, {
-    ...options,
-    headers,
-  });
-  
-  if (res.status === 401) {
-    clearToken();
-    window.location.reload();
-    throw new Error('Unauthorized');
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearToken();
+      window.location.reload();
+    }
+    throw new Error('API error');
   }
   
-  return res;
+  return response.json();
 }
 
 export async function login(username: string, displayName: string) {
-  const res = await apiFetch('/api/login', {
+  return apiRequest('/api/login', {
     method: 'POST',
     body: JSON.stringify({ username, displayName }),
   });
-  if (!res.ok) throw new Error('Login failed');
-  return res.json();
 }
 
 export async function getMe() {
-  const res = await apiFetch('/api/me');
-  if (!res.ok) throw new Error('Not authenticated');
-  return res.json();
+  return apiRequest('/api/me');
+}
+
+export async function sendMessage(text: string, username: string) {
+  return apiRequest('/api/send', {
+    method: 'POST',
+    body: JSON.stringify({ text, username }),
+  });
+}
+
+export async function loadHistory() {
+  return apiRequest('/api/messages');
+}
+
+export async function deleteMessage(id: string, username: string) {
+  return apiRequest('/api/delete', {
+    method: 'POST',
+    body: JSON.stringify({ id, username }),
+  });
+}
+
+export async function clearChat(username: string) {
+  return apiRequest('/api/clear', {
+    method: 'POST',
+    body: JSON.stringify({ username }),
+  });
 }
