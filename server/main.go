@@ -380,6 +380,71 @@ func fileHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ctype)
 	w.Write(data)
 }
+type User struct {
+	ID          string `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"displayName"`
+}
+
+type contextKey string
+const userContextKey contextKey = "user"
+
+func generateToken() string {
+	return uuid.New().String() + "-" + uuid.New().String()
+}
+
+func requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		token := strings.TrimPrefix(auth, "Bearer ")
+		var userID string
+		err := db.QueryRow("SELECT user_id FROM sessions WHERE token = $1", token).Scan(&userID)
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		ctx := context.WithValue(r.Context(), userContextKey, userID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username string `json:"username"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	req.Username = strings.TrimSpace(strings.ToLower(req.Username))
+	
+	if len(req.Username) < 5 {
+		http.Error(w, "Min 5 chars", http.StatusBadRequest)
+		return
+	}
+	
+	var userID string
+	err := db.QueryRow(`INSERT INTO users (username, display_name) VALUES ($1, $1) ON CONFLICT (username) DO NOTHING RETURNING id`, req.Username).Scan(&userID)
+	if err == sql.ErrNoRows {
+		db.QueryRow("SELECT id FROM users WHERE username = $1", req.Username).Scan(&userID)
+	}
+	
+	token := generateToken()
+	db.Exec(`INSERT INTO sessions (token, user_id) VALUES ($1, $2)`, token, userID)
+	
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"token": token,
+		"user": User{ID: userID, Username: req.Username, DisplayName: req.Username},
+	})
+}
+
+func meHandler(w http.ResponseWriter, r *http.Request) {
+	userID := r.Context().Value(userContextKey).(string)
+	var u User
+	db.QueryRow("SELECT id, username, display_name FROM users WHERE id = $1", userID).Scan(&u.ID, &u.Username, &u.DisplayName)
+	json.NewEncoder(w).Encode(u)
+}
 
 func main() {
 	initDB()
