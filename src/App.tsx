@@ -1,39 +1,38 @@
-import React, { useState, useEffect } from 'react';
-import Chat from './Chat';
+import { useState, useEffect } from 'react';
+import { getMe, getToken, clearToken } from './api';
 import LoginScreen from './components/LoginScreen';
-import { getMe } from './api';
 
-const App: React.FC = () => {
-  const [username, setUsername] = useState<string | null>(null);
+function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('fposte_token');
-    if (!token) {
+    const token = getToken();
+    if (token) {
+      getMe()
+        .then(() => setIsLoggedIn(true))
+        .catch(() => clearToken())
+        .finally(() => setLoading(false));
+    } else {
       setLoading(false);
-      return;
     }
-    
-    getMe()
-      .then((user) => {
-        setUsername(user.username);
-        setLoading(false);
-      })
-      .catch(() => {
-        localStorage.removeItem('fposte_token');
-        setLoading(false);
-      });
   }, []);
 
   if (loading) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Загрузка...</div>;
   }
 
-  if (!username) {
-    return <LoginScreen onLogin={() => window.location.reload()} />;
+  if (!isLoggedIn) {
+    return <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
   }
 
-  return <Chat username={username} />;
-};
+  return (
+    <div>
+      <h1>F.Poste</h1>
+      <p>Чат работает. Здесь будет основной интерфейс.</p>
+      <button onClick={() => { clearToken(); setIsLoggedIn(false); }}>Выйти</button>
+    </div>
+  );
+}
 
 export default App;
