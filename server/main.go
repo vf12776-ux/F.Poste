@@ -479,6 +479,52 @@ func meHandler(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow("SELECT id, username, display_name FROM users WHERE id = $1", userID).Scan(&u.ID, &u.Username, &u.DisplayName)
 	json.NewEncoder(w).Encode(u)
 }
+func listChannels(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, name, created_at FROM channels ORDER BY created_at ASC")
+	if err != nil {
+		http.Error(w, "Failed to load channels", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var channels []map[string]interface{}
+	for rows.Next() {
+		var id, name string
+		var createdAt time.Time
+		err := rows.Scan(&id, &name, &createdAt)
+		if err != nil {
+			continue
+		}
+		channels = append(channels, map[string]interface{}{
+			"id":        id,
+			"name":      name,
+			"createdAt": createdAt.Unix(),
+		})
+	}
+	json.NewEncoder(w).Encode(channels)
+}
+
+func createChannel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	req.Name = strings.TrimSpace(strings.ToLower(req.Name))
+
+	if len(req.Name) < 2 {
+		http.Error(w, "Min 2 chars", http.StatusBadRequest)
+		return
+	}
+
+	var id string
+	err := db.QueryRow("INSERT INTO channels (name) VALUES ($1) RETURNING id", req.Name).Scan(&id)
+	if err != nil {
+		http.Error(w, "Channel already exists", http.StatusConflict)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"id": id, "name": req.Name})
+}
 
 func main() {
 	initDB()
