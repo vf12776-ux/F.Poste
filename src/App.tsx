@@ -61,7 +61,6 @@ export default function App() {
       formData.append('file', file);
       formData.append('username', user.username);
       const res = await fetch('/upload', { method: 'POST', body: formData });
-      const fileUrl = await res.text();
       await sendMessage(file.name, user.username);
       fetchMessages();
     } catch (e) {
@@ -116,6 +115,7 @@ export default function App() {
     return <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.text}</div>;
   };
 
+  // Экран входа
   if (!user) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f5f5f5' }}>
@@ -131,4 +131,20 @@ export default function App() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ username, displayName: username })
             }).then(r => r.json());
-            localStorage.setItem('fposte_token', data.token
+            localStorage.setItem('fposte_token', data.token);
+            window.location.reload();
+          } catch (err) {
+            alert('Ошибка входа');
+          }
+        }} style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '300px' }}>
+          <input name="username" placeholder="Ник (мин. 5 символов)" required style={{ padding: '10px' }} />
+          <button type="submit" style={{ padding: '10px', background: '#007bff', color: 'white', border: 'none' }}>Войти</button>
+        </form>
+      </div>
+    );
+  }
+
+  // Основной интерфейс чата
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', maxWidth: '800px', margin: '0 auto', background: '#f5f5f5' }}>
+      <header style={{ padding: '15px',
