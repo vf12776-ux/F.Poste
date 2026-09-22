@@ -69,10 +69,16 @@ export default function App() {
     }
   };
 
-  const handleSend = async (e: React.FormEvent) => {
+    const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user || !currentChannelId) return;
+    if (!newMessage.trim() || !user) return; 
     
+    // Если currentChannelId все еще null, ждем или используем заглушку
+    if (!currentChannelId) {
+        alert("Подождите загрузки чата...");
+        return;
+    }
+
     setMessages(prev => [...prev, { id: 'temp-' + Date.now(), username: user.username, text: newMessage, timestamp: Date.now() }]);
     const text = newMessage;
     setNewMessage('');
