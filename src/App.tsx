@@ -120,31 +120,39 @@ export default function App() {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f5f5f5' }}>
         <h1>F.Poste</h1>
-        <form onSubmit={async (e) => {
-          e.preventDefault();
-          const input = (e.target as any).elements.username;
-          const username = input.value.trim().toLowerCase();
-          if (username.length < 5) return alert('Минимум 5 символов');
-          try {
-            const res = await fetch('/api/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username, displayName: username })
-            });
-            const data = await res.json();
-            if (data.token) {
-              localStorage.setItem('fposte_token', data.token);
-              window.location.reload();
-            } else {
-              alert('Ошибка входа');
-            }
-          } catch (err) {
-            alert('Ошибка соединения');
-          }
-        }} style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '300px' }}>
-          <input name="username" placeholder="Ник (мин. 5 символов)" required style={{ padding: '10px' }} />
-          <button type="submit" style={{ padding: '10px', background: '#007bff', color: 'white', border: 'none' }}>Войти</button>
-        </form>
+       <form onSubmit={async (e) => {
+  e.preventDefault();
+  const input = (e.target as any).elements.username;
+  const username = input.value.trim().toLowerCase();
+  if (username.length < 5) {
+    alert('Минимум 5 символов');
+    return;
+  }
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, displayName: username })
+    });
+    if (!res.ok) {
+      const errorText = await res.text();
+      alert('Ошибка входа: ' + errorText);
+      return;
+    }
+    const data = await res.json();
+    if (data.token) {
+      localStorage.setItem('fposte_token', data.token);
+      setTimeout(() => window.location.reload(), 100);
+    } else {
+      alert('Сервер не вернул токен');
+    }
+  } catch (err) {
+    alert('Ошибка соединения: ' + err);
+  }
+}} style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '300px' }}>
+  <input name="username" placeholder="Ник (мин. 5 символов)" required style={{ padding: '10px' }} />
+  <button type="submit" style={{ padding: '10px', background: '#007bff', color: 'white', border: 'none', cursor: 'pointer' }}>Войти</button>
+</form>
       </div>
     );
   }
