@@ -531,7 +531,9 @@ func main() {
 	defer db.Close()
 
 	http.HandleFunc("/api/send", sendMessageHandler)
-	http.HandleFunc("/api/messages", historyHandler)
+	http.HandleFunc("/api/messages", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+    loadHistory(w, r)
+}))
 	http.HandleFunc("/api/delete", deleteMessageHandler)
 	http.HandleFunc("/api/clear", clearChatHandler)
 	http.HandleFunc("/upload", uploadHandler)
