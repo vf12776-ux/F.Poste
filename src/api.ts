@@ -68,3 +68,13 @@ export async function clearChat(username: string) {
     body: JSON.stringify({ username }),
   });
 }
+export async function listChannels() {
+  return apiRequest('/api/channels');
+}
+
+export async function createChannel(name: string) {
+  return apiRequest('/api/channels/create', {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+}
