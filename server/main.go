@@ -530,56 +530,33 @@ func main() {
 	initDB()
 	defer db.Close()
 
-	http.HandleFunc("/api/send", sendMessageHandler)
+	http.HandleFunc("/api/login", loginHandler)
+	http.HandleFunc("/api/me", requireAuth(meHandler))
+	
 	http.HandleFunc("/api/messages", requireAuth(func(w http.ResponseWriter, r *http.Request) {
-    loadHistory(w, r)
-}))
-	http.HandleFunc("/api/delete", deleteMessageHandler)
-	http.HandleFunc("/api/clear", clearChatHandler)
+		loadHistory(w, r)
+	}))
+	
+	http.HandleFunc("/api/send", requireAuth(sendMessageHandler))
+	http.HandleFunc("/api/delete", requireAuth(deleteMessageHandler))
+	http.HandleFunc("/api/clear", requireAuth(clearChatHandler))
+	
+	http.HandleFunc("/api/channels", listChannels)
+	http.HandleFunc("/api/channels/create", requireAuth(createChannel))
+	
 	http.HandleFunc("/upload", uploadHandler)
 	http.HandleFunc("/api/file/", fileHandler)
+	
 	http.HandleFunc("/api/vapid-public-key", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(vapidPublicKey))
 	})
 	http.HandleFunc("/api/subscribe", subscribeHandler)
-	http.HandleFunc("/api/login", loginHandler)
-	http.HandleFunc("/api/me", requireAuth(meHandler))
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
-
-	// SPA static files (dist)
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/upload") {
-			http.NotFound(w, r)
-			return
-		}
-
-		// Для index.html и корня запрещаем кэширование
-		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-			w.Header().Set("Pragma", "no-cache")
-			w.Header().Set("Expires", "0")
-			http.ServeFile(w, r, "dist/index.html")
-			return
-		}
-
-		path := filepath.Join("dist", r.URL.Path)
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-			http.ServeFile(w, r, path)
-			return
-		}
-
-		// Fallback для SPA роутинга
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		http.ServeFile(w, r, "dist/index.html")
-	})
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
-		http.HandleFunc("/api/channels", listChannels)
-	http.HandleFunc("/api/channels/create", createChannel)
 	log.Printf("Server started on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
