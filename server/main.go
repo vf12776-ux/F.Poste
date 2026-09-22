@@ -193,7 +193,7 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	_, err := db.Exec(`INSERT INTO messages (username, text, timestamp, channel_id) VALUES ($1, $2, $3, $4)`,
 		req.Username, req.Text, time.Now().Unix(), channelID)
 	if err != nil {
-		http.Error(w, "Failed to send message", http.StatusInternalServerError)
+		http.Error(w, "Failed to send message: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -328,6 +328,7 @@ func main() {
 
 	os.MkdirAll("./uploads", 0755)
 
+	// API роуты
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/me", requireAuth(meHandler))
 	http.HandleFunc("/api/messages", requireAuth(loadHistory))
@@ -343,6 +344,10 @@ func main() {
 	})
 	http.HandleFunc("/api/subscribe", subscribeHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
+
+	// Раздача статики (фронтенд)
+	fs := http.FileServer(http.Dir("./dist"))
+	http.Handle("/", fs)
 
 	port := os.Getenv("PORT")
 	if port == "" {
