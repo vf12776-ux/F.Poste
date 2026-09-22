@@ -1,135 +1,143 @@
 package main
 
 import (
-	"bytes"
-	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
-	webpush "github.com/SherClockHolmes/webpush-go"
-	"github.com/google/uuid" // <-- ДОБАВИТЬ ЭТУ СТРОКУ
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/golang-jwt/jwt/v5"
+	_ "github.com/lib/pq"
 )
 
 var db *sql.DB
-
-// VAPID ключи
-var vapidPublicKey = "BF3Ley-6RMmTycWc-8N-H8Gb8pyLfrC9HGyK8pg-nH1tKkUxLRq_Pr70O-OwDuUXCdRR1hNbtDzrtEARqamXNyI"
-var vapidPrivateKey = "Q-c-3Q4OuyOPaAQxIqYgZWb4VxIuwwUCqfMhSU1tnKs"
-var contactEmail = "vf12776@gmail.com"
-
-type Message struct {
-	ID        string `json:"id"`
-	Username  string `json:"username"`
-	Text      string `json:"text"`
-	IsFile    bool   `json:"isFile,omitempty"`
-	FileUrl   string `json:"fileUrl,omitempty"`
-	FileName  string `json:"fileName,omitempty"`
-	Type      string `json:"type"`
-	Timestamp int64  `json:"timestamp"`
-}
-
-type pushSubscription struct {
-	Endpoint string
-	P256dh   string
-	Auth     string
-}
-
-// Apinator конфигурация
-const (
-	apinatorAppID  = "10656abd-ac71-446e-8913-b17e26db7753"
-	apinatorSecret = "651cd74813a0e9d86f72990b7ac65ad79deadfe63f5e0e1062d536462434b6d9"
-)
+var jwtSecret = []byte("fposte-secret-key-change-in-prod")
+var vapidPublicKey = os.Getenv("VAPID_PUBLIC_KEY")
 
 func initDB() {
 	connStr := os.Getenv("DATABASE_URL")
 	if connStr == "" {
-		log.Fatal("FATAL: DATABASE_URL environment variable not set")
+		log.Fatal("DATABASE_URL not set")
 	}
-
-	// Парсим конфигурацию строки подключения
-	config, err := pgx.ParseConfig(connStr)
+	var err error
+	db, err = sql.Open("postgres", connStr)
 	if err != nil {
-		log.Fatal("FATAL: parse config failed: ", err)
+		log.Fatalf("Failed to open DB: %v", err)
 	}
-
-	// КРИТИЧЕСКИ ВАЖНО: отключаем кэш prepared statements для совместимости с Supabase Pooler (PgBouncer)
-	config.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
-
-	// Открываем БД с этой конфигурацией
-	db = stdlib.OpenDB(*config)
-
 	if err = db.Ping(); err != nil {
-		log.Fatal("FATAL: database ping failed: ", err)
+		log.Fatalf("Failed to ping DB: %v", err)
 	}
 	log.Println("DB connected")
+}
 
-	createTableSQL := `
-	CREATE TABLE IF NOT EXISTS messages (
-		id TEXT PRIMARY KEY,
-		username TEXT,
-		text TEXT,
-		is_file BOOLEAN,
-		file_name TEXT,
-		file_data BYTEA,
-		type TEXT,
-		timestamp BIGINT
-	)`
-	if _, err = db.Exec(createTableSQL); err != nil {
-		log.Fatal("FATAL: failed to create messages table: ", err)
+type Claims struct {
+	Username string `json:"username"`
+	jwt.RegisteredClaims
+}
+
+func generateToken(username string) (string, error) {
+	claims := &Claims{
+		Username: username,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(30 * 24 * time.Hour)),
+		},
 	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(jwtSecret)
+}
 
-	createPushTableSQL := `
-	CREATE TABLE IF NOT EXISTS push_subscriptions (
-		id SERIAL PRIMARY KEY,
-		user_id TEXT NOT NULL,
-		endpoint TEXT NOT NULL UNIQUE,
-		p256dh TEXT NOT NULL,
-		auth TEXT NOT NULL,
-		created_at TIMESTAMPTZ DEFAULT NOW()
-	)`
-	if _, err = db.Exec(createPushTableSQL); err != nil {
-		log.Printf("WARN: failed to create push_subscriptions table: %v", err)
+func requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		claims := &Claims{}
+		_, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (interface{}, error) {
+			return jwtSecret, nil
+		})
+		if err != nil {
+			http.Error(w, "Invalid token", http.StatusUnauthorized)
+			return
+		}
+		r.Header.Set("X-Username", claims.Username)
+		next(w, r)
 	}
 }
 
-func saveMessageToDB(m Message, fileData []byte) error {
-	_, err := db.Exec(`
-		INSERT INTO messages(id, username, text, is_file, file_name, file_data, type, timestamp)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-		m.ID, m.Username, m.Text, m.IsFile, m.FileName, fileData, m.Type, m.Timestamp)
-	return err
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Username    string `json:"username"`
+		DisplayName string `json:"displayName"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	req.Username = strings.ToLower(strings.TrimSpace(req.Username))
+	if len(req.Username) < 5 {
+		http.Error(w, "Username min 5 chars", http.StatusBadRequest)
+		return
+	}
+
+	var userID string
+	err := db.QueryRow("SELECT id FROM users WHERE username = $1", req.Username).Scan(&userID)
+	if err == sql.ErrNoRows {
+		err = db.QueryRow("INSERT INTO users (username, display_name) VALUES ($1, $2) RETURNING id",
+			req.Username, req.DisplayName).Scan(&userID)
+		if err != nil {
+			http.Error(w, "Failed to create user", http.StatusInternalServerError)
+			return
+		}
+	} else if err != nil {
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+
+	token, err := generateToken(req.Username)
+	if err != nil {
+		http.Error(w, "Token generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"token": token})
+}
+
+func meHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	var displayName string
+	err := db.QueryRow("SELECT display_name FROM users WHERE username = $1", username).Scan(&displayName)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"username":    username,
+		"displayName": displayName,
+	})
 }
 
 func loadHistory(w http.ResponseWriter, r *http.Request) {
 	channelID := r.URL.Query().Get("channel")
-	
-	var query string
-	var args []interface{}
-	
+	var rows *sql.Rows
+	var err error
+
 	if channelID != "" {
-		query = `SELECT m.id, m.username, m.text, m.file_url, m.file_name, m.timestamp, m.channel_id 
-		         FROM messages m 
-		         WHERE m.channel_id = $1 
-		         ORDER BY m.timestamp ASC LIMIT 100`
-		args = []interface{}{channelID}
+		rows, err = db.Query(`SELECT id, username, text, file_url, file_name, timestamp, channel_id 
+		                       FROM messages WHERE channel_id = $1 ORDER BY timestamp ASC LIMIT 100`, channelID)
 	} else {
-		query = `SELECT id, username, text, file_url, file_name, timestamp, channel_id 
-		         FROM messages 
-		         WHERE channel_id IS NULL 
-		         ORDER BY timestamp ASC LIMIT 100`
+		rows, err = db.Query(`SELECT id, username, text, file_url, file_name, timestamp, channel_id 
+		                       FROM messages WHERE channel_id IS NULL ORDER BY timestamp ASC LIMIT 100`)
 	}
-	
-	rows, err := db.Query(query, args...)
 	if err != nil {
 		http.Error(w, "Failed to load history", http.StatusInternalServerError)
 		return
@@ -139,15 +147,11 @@ func loadHistory(w http.ResponseWriter, r *http.Request) {
 	var messages []map[string]interface{}
 	for rows.Next() {
 		var id, username, text string
-		var fileURL, fileName sql.NullString
+		var fileURL, fileName, chID sql.NullString
 		var timestamp int64
-		var channelID sql.NullString
-		
-		err := rows.Scan(&id, &username, &text, &fileURL, &fileName, &timestamp, &channelID)
-		if err != nil {
+		if err := rows.Scan(&id, &username, &text, &fileURL, &fileName, &timestamp, &chID); err != nil {
 			continue
 		}
-		
 		msg := map[string]interface{}{
 			"id":        id,
 			"username":  username,
@@ -159,145 +163,43 @@ func loadHistory(w http.ResponseWriter, r *http.Request) {
 			msg["fileUrl"] = fileURL.String
 			msg["fileName"] = fileName.String
 		}
-		if channelID.Valid {
-			msg["channelId"] = channelID.String
+		if chID.Valid {
+			msg["channelId"] = chID.String
 		}
 		messages = append(messages, msg)
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(messages)
 }
-// Отправка события через Apinator (HTTP API)
-func triggerApinator(event string, data interface{}) error {
-	payload := map[string]interface{}{
-		"event": event,
-		"data":  data,
-	}
-	jsonPayload, _ := json.Marshal(payload)
-	url := "https://api.apinator.io/v1/apps/" + apinatorAppID + "/triggers"
-	req, _ := http.NewRequest("POST", url, bytes.NewBuffer(jsonPayload))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apinatorSecret)
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Apinator error: %s", body)
-	}
-	return nil
-}
 
-func sendPushNotification(sub pushSubscription, title, body string) {
-	s := &webpush.Subscription{
-		Endpoint: sub.Endpoint,
-		Keys: webpush.Keys{
-			P256dh: sub.P256dh,
-			Auth:   sub.Auth,
-		},
-	}
-	payload := map[string]string{"title": title, "body": body}
-	payloadBytes, _ := json.Marshal(payload)
-	_, err := webpush.SendNotification(payloadBytes, s, &webpush.Options{
-		Subscriber:      contactEmail,
-		VAPIDPublicKey:  vapidPublicKey,
-		VAPIDPrivateKey: vapidPrivateKey,
-		TTL:             30,
-	})
-	if err != nil {
-		log.Printf("Push error: %v", err)
-	}
-}
-
-func subscribeHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
+func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		UserID   string `json:"userId"`
-		Endpoint string `json:"endpoint"`
-		Keys     struct {
-			P256dh string `json:"p256dh"`
-			Auth   string `json:"auth"`
-		} `json:"keys"`
+		Text      string `json:"text"`
+		Username  string `json:"username"`
+		ChannelID string `json:"channelId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	_, err := db.Exec(`INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) VALUES ($1,$2,$3,$4)
-		ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id`,
-		req.UserID, req.Endpoint, req.Keys.P256dh, req.Keys.Auth)
+
+	var channelID interface{}
+	if req.ChannelID != "" {
+		channelID = req.ChannelID
+	} else {
+		channelID = nil
+	}
+
+	_, err := db.Exec(`INSERT INTO messages (username, text, timestamp, channel_id) VALUES ($1, $2, $3, $4)`,
+		req.Username, req.Text, time.Now().Unix(), channelID)
 	if err != nil {
-		log.Printf("DB error saving subscription: %v", err)
-		http.Error(w, "DB error", http.StatusInternalServerError)
+		http.Error(w, "Failed to send message", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
 
-func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		Username string `json:"username"`
-		Text     string `json:"text"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
-		return
-	}
-	msg := Message{
-		ID:        uuid.New().String(),
-		Username:  req.Username,
-		Text:      req.Text,
-		IsFile:    false,
-		Type:      "msg",
-		Timestamp: time.Now().Unix(),
-	}
-	if err := saveMessageToDB(msg, nil); err != nil {
-		http.Error(w, "DB error", http.StatusInternalServerError)
-		return
-	}
-	go triggerApinator("new_message", msg)
-
-	go func(sender string, msg Message) {
-		rows, err := db.Query(`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id != $1`, sender)
-		if err != nil {
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var sub pushSubscription
-			if err := rows.Scan(&sub.Endpoint, &sub.P256dh, &sub.Auth); err != nil {
-				continue
-			}
-			title := msg.Username
-			body := msg.Text
-			sendPushNotification(sub, title, body)
-		}
-	}(req.Username, msg)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok", "id": msg.ID})
-}
-
-func historyHandler(w http.ResponseWriter, r *http.Request) {
-	messages := loadHistory()
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(messages)
-}
-
 func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	var req struct {
 		ID       string `json:"id"`
 		Username string `json:"username"`
@@ -306,30 +208,15 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	var author string
-	err := db.QueryRow("SELECT username FROM messages WHERE id=$1", req.ID).Scan(&author)
+	_, err := db.Exec("DELETE FROM messages WHERE id = $1 AND username = $2", req.ID, req.Username)
 	if err != nil {
-		http.Error(w, "Message not found", http.StatusNotFound)
+		http.Error(w, "Failed to delete", http.StatusInternalServerError)
 		return
 	}
-	if author != req.Username {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-	_, err = db.Exec("DELETE FROM messages WHERE id=$1", req.ID)
-	if err != nil {
-		http.Error(w, "DB error", http.StatusInternalServerError)
-		return
-	}
-	go triggerApinator("delete_message", map[string]string{"id": req.ID})
 	w.WriteHeader(http.StatusOK)
 }
 
 func clearChatHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	var req struct {
 		Username string `json:"username"`
 	}
@@ -337,148 +224,14 @@ func clearChatHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	if req.Username == "" {
-		http.Error(w, "Username required", http.StatusBadRequest)
-		return
-	}
-	_, err := db.Exec("DELETE FROM messages")
+	_, err := db.Exec("DELETE FROM messages WHERE username = $1", req.Username)
 	if err != nil {
-		http.Error(w, "DB error", http.StatusInternalServerError)
+		http.Error(w, "Failed to clear", http.StatusInternalServerError)
 		return
 	}
-	go triggerApinator("clear_chat", nil)
 	w.WriteHeader(http.StatusOK)
 }
 
-func uploadHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	username := r.FormValue("username")
-	if username == "" {
-		http.Error(w, "username required", http.StatusBadRequest)
-		return
-	}
-	err := r.ParseMultipartForm(10 << 20)
-	if err != nil {
-		http.Error(w, "File too large", http.StatusBadRequest)
-		return
-	}
-	file, handler, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, "File error", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-	data, err := io.ReadAll(file)
-	if err != nil {
-		http.Error(w, "Read error", http.StatusInternalServerError)
-		return
-	}
-	msg := Message{
-		ID:        uuid.New().String(),
-		Username:  username,
-		Text:      handler.Filename,
-		IsFile:    true,
-		FileName:  handler.Filename,
-		Type:      "msg",
-		Timestamp: time.Now().Unix(),
-	}
-	saveMessageToDB(msg, data)
-	msg.FileUrl = "/api/file/" + msg.ID
-	go triggerApinator("new_message", msg)
-	w.Write([]byte(msg.FileUrl))
-}
-
-func fileHandler(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/file/")
-	var data []byte
-	var fileName string
-	err := db.QueryRow("SELECT file_data, file_name FROM messages WHERE id=$1", id).Scan(&data, &fileName)
-	if err != nil {
-		http.Error(w, "File not found", http.StatusNotFound)
-		return
-	}
-	ext := strings.ToLower(filepath.Ext(fileName))
-	ctype := "application/octet-stream"
-	if ext == ".jpg" || ext == ".jpeg" {
-		ctype = "image/jpeg"
-	} else if ext == ".png" {
-		ctype = "image/png"
-	} else if ext == ".gif" {
-		ctype = "image/gif"
-	} else if ext == ".webm" {
-		ctype = "audio/webm"
-	}
-	w.Header().Set("Content-Type", ctype)
-	w.Write(data)
-}
-type User struct {
-	ID          string `json:"id"`
-	Username    string `json:"username"`
-	DisplayName string `json:"displayName"`
-}
-
-type contextKey string
-const userContextKey contextKey = "user"
-
-func generateToken() string {
-	return uuid.New().String() + "-" + uuid.New().String()
-}
-
-func requireAuth(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		token := strings.TrimPrefix(auth, "Bearer ")
-		var userID string
-		err := db.QueryRow("SELECT user_id FROM sessions WHERE token = $1", token).Scan(&userID)
-		if err != nil {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		ctx := context.WithValue(r.Context(), userContextKey, userID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}
-}
-
-func loginHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Username string `json:"username"`
-	}
-	json.NewDecoder(r.Body).Decode(&req)
-	req.Username = strings.TrimSpace(strings.ToLower(req.Username))
-	
-	if len(req.Username) < 5 {
-		http.Error(w, "Min 5 chars", http.StatusBadRequest)
-		return
-	}
-	
-	var userID string
-	err := db.QueryRow(`INSERT INTO users (username, display_name) VALUES ($1, $1) ON CONFLICT (username) DO NOTHING RETURNING id`, req.Username).Scan(&userID)
-	if err == sql.ErrNoRows {
-		db.QueryRow("SELECT id FROM users WHERE username = $1", req.Username).Scan(&userID)
-	}
-	
-	token := generateToken()
-	db.Exec(`INSERT INTO sessions (token, user_id) VALUES ($1, $2)`, token, userID)
-	
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"token": token,
-		"user": User{ID: userID, Username: req.Username, DisplayName: req.Username},
-	})
-}
-
-func meHandler(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(userContextKey).(string)
-	var u User
-	db.QueryRow("SELECT id, username, display_name FROM users WHERE id = $1", userID).Scan(&u.ID, &u.Username, &u.DisplayName)
-	json.NewEncoder(w).Encode(u)
-}
 func listChannels(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.Query("SELECT id, name, created_at FROM channels ORDER BY created_at ASC")
 	if err != nil {
@@ -491,8 +244,7 @@ func listChannels(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var id, name string
 		var createdAt time.Time
-		err := rows.Scan(&id, &name, &createdAt)
-		if err != nil {
+		if err := rows.Scan(&id, &name, &createdAt); err != nil {
 			continue
 		}
 		channels = append(channels, map[string]interface{}{
@@ -501,6 +253,7 @@ func listChannels(w http.ResponseWriter, r *http.Request) {
 			"createdAt": createdAt.Unix(),
 		})
 	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(channels)
 }
 
@@ -508,9 +261,11 @@ func createChannel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
 	req.Name = strings.TrimSpace(strings.ToLower(req.Name))
-
 	if len(req.Name) < 2 {
 		http.Error(w, "Min 2 chars", http.StatusBadRequest)
 		return
@@ -519,34 +274,70 @@ func createChannel(w http.ResponseWriter, r *http.Request) {
 	var id string
 	err := db.QueryRow("INSERT INTO channels (name) VALUES ($1) RETURNING id", req.Name).Scan(&id)
 	if err != nil {
-		http.Error(w, "Channel already exists", http.StatusConflict)
+		http.Error(w, "Channel already exists or DB error", http.StatusConflict)
 		return
 	}
-
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": id, "name": req.Name})
+}
+
+func uploadHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "No file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	dst, err := os.Create(fmt.Sprintf("./uploads/%s", header.Filename))
+	if err != nil {
+		http.Error(w, "Save failed", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		http.Error(w, "Copy failed", http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte(fmt.Sprintf("/uploads/%s", header.Filename)))
+}
+
+func fileHandler(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/file/")
+	var fileURL, fileName sql.NullString
+	err := db.QueryRow("SELECT file_url, file_name FROM messages WHERE id = $1", id).Scan(&fileURL, &fileName)
+	if err != nil || !fileURL.Valid {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, "."+fileURL.String)
+}
+
+func subscribeHandler(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
 }
 
 func main() {
 	initDB()
 	defer db.Close()
 
+	os.MkdirAll("./uploads", 0755)
+
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/me", requireAuth(meHandler))
-	
-	http.HandleFunc("/api/messages", requireAuth(func(w http.ResponseWriter, r *http.Request) {
-		loadHistory(w, r)
-	}))
-	
+	http.HandleFunc("/api/messages", requireAuth(loadHistory))
 	http.HandleFunc("/api/send", requireAuth(sendMessageHandler))
 	http.HandleFunc("/api/delete", requireAuth(deleteMessageHandler))
 	http.HandleFunc("/api/clear", requireAuth(clearChatHandler))
-	
 	http.HandleFunc("/api/channels", listChannels)
 	http.HandleFunc("/api/channels/create", requireAuth(createChannel))
-	
 	http.HandleFunc("/upload", uploadHandler)
 	http.HandleFunc("/api/file/", fileHandler)
-	
 	http.HandleFunc("/api/vapid-public-key", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(vapidPublicKey))
 	})
