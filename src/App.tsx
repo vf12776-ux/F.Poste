@@ -105,31 +105,23 @@ export default function App() {
     setMessages([]);
   };
 
-  const renderMessageContent = (msg: any) => {
-    if (msg.isFile && msg.fileUrl) {
+    const renderMessageContent = (msg: any) => {
+    if (msg.isFile) {
       const ext = msg.fileName?.split('.').pop()?.toLowerCase() || '';
       const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
       const isAudio = ['webm', 'ogg', 'mp3', 'm4a', 'wav'].includes(ext);
+      const url = `/api/file/${msg.id}`;
 
       if (isImage) {
-        return <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', display: 'block' }} />;
+        return <img src={url} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', display: 'block' }} />;
       }
       if (isAudio) {
-        return <audio controls src={msg.fileUrl} style={{ maxWidth: '100%' }} />;
+        return <audio controls src={url} style={{ maxWidth: '100%' }} />;
       }
-      return <a href={msg.fileUrl} download={msg.fileName} style={{ color: 'inherit', textDecoration: 'underline' }}>📎 {msg.fileName}</a>;
+      return <a href={url} download={msg.fileName} style={{ color: 'inherit', textDecoration: 'underline' }}>📎 {msg.fileName}</a>;
     }
     return <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.text}</div>;
   };
-
-  if (loading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Загрузка...</div>;
-  }
-
-  if (!user) {
-    return <LoginScreen onLogin={() => window.location.reload()} />;
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', maxWidth: '800px', margin: '0 auto', background: '#f5f5f5' }}>
       <header style={{ padding: '15px', background: '#007bff', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
