@@ -576,6 +576,8 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
+		http.HandleFunc("/api/channels", listChannels)
+	http.HandleFunc("/api/channels/create", createChannel)
 	log.Printf("Server started on :%s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
