@@ -7,7 +7,9 @@ export default function App() {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const token = getToken();
@@ -45,16 +47,35 @@ export default function App() {
     e.preventDefault();
     if (!newMessage.trim() || !user) return;
     
-    const tempId = 'temp-' + Date.now();
-    const tempMsg = { id: tempId, username: user.username, text: newMessage, timestamp: Date.now() };
-    setMessages(prev => [...prev, tempMsg]);
+    setMessages(prev => [...prev, { id: 'temp-' + Date.now(), username: user.username, text: newMessage, timestamp: Date.now() }]);
+    const text = newMessage;
     setNewMessage('');
 
     try {
-      await sendMessage(newMessage, user.username);
+      await sendMessage(text, user.username);
       fetchMessages();
     } catch (e) {
       console.error('Failed to send', e);
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('username', user.username);
+      const res = await fetch('/upload', { method: 'POST', body: formData });
+      const fileUrl = await res.text();
+      await sendMessage(file.name, user.username);
+      fetchMessages();
+    } catch (e) {
+      console.error('Upload failed', e);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -82,6 +103,23 @@ export default function App() {
     clearToken();
     setUser(null);
     setMessages([]);
+  };
+
+  const renderMessageContent = (msg: any) => {
+    if (msg.isFile && msg.fileUrl) {
+      const ext = msg.fileName?.split('.').pop()?.toLowerCase() || '';
+      const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+      const isAudio = ['webm', 'ogg', 'mp3', 'm4a', 'wav'].includes(ext);
+
+      if (isImage) {
+        return <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', display: 'block' }} />;
+      }
+      if (isAudio) {
+        return <audio controls src={msg.fileUrl} style={{ maxWidth: '100%' }} />;
+      }
+      return <a href={msg.fileUrl} download={msg.fileName} style={{ color: 'inherit', textDecoration: 'underline' }}>📎 {msg.fileName}</a>;
+    }
+    return <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.text}</div>;
   };
 
   if (loading) {
@@ -114,7 +152,7 @@ export default function App() {
             position: 'relative'
           }}>
             <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>{msg.username}</div>
-            <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>
+            {renderMessageContent(msg)}
             {msg.username === user.username && (
               <button 
                 onClick={() => handleDelete(msg.id)}
@@ -126,7 +164,14 @@ export default function App() {
         <div ref={messagesEndRef} />
       </div>
 
-      <form onSubmit={handleSend} style={{ padding: '15px', background: 'white', borderTop: '1px solid #ddd', display: 'flex', gap: '10px' }}>
+      <form onSubmit={handleSend} style={{ padding: '15px', background: 'white', borderTop: '1px solid #ddd', display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileUpload}
+          style={{ display: 'none' }}
+        />
+        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ background: '#6c757d', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px' }} title="Прикрепить файл">📎</button>
         <input
           type="text"
           value={newMessage}
