@@ -37,12 +37,23 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const loadChannels = async () => {
+    const loadChannels = async () => {
     try {
       const data = await listChannels();
       setChannels(data || []);
-      if (data && data.length > 0 && !currentChannelId) {
+      
+      // Если есть каналы, всегда выбираем первый (это будет наш general или созданный)
+      if (data && data.length > 0) {
         setCurrentChannelId(data[0].id);
+      } else {
+        // Если каналов вообще нет (ошибка БД), пробуем создать general программно
+        try {
+            const newCh = await createChannel('general');
+            setChannels([newCh]);
+            setCurrentChannelId(newCh.id);
+        } catch (e) {
+            console.error("Не удалось создать общий чат", e);
+        }
       }
     } catch (e) {
       console.error('Failed to load channels', e);
