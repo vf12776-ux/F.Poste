@@ -110,28 +110,62 @@ func saveMessageToDB(m Message, fileData []byte) error {
 	return err
 }
 
-func loadHistory() []Message {
-	rows, err := db.Query(`SELECT id, username, text, is_file, file_name, type, timestamp FROM messages ORDER BY timestamp ASC`)
+func loadHistory(w http.ResponseWriter, r *http.Request) {
+	channelID := r.URL.Query().Get("channel")
+	
+	var query string
+	var args []interface{}
+	
+	if channelID != "" {
+		query = `SELECT m.id, m.username, m.text, m.file_url, m.file_name, m.timestamp, m.channel_id 
+		         FROM messages m 
+		         WHERE m.channel_id = $1 
+		         ORDER BY m.timestamp ASC LIMIT 100`
+		args = []interface{}{channelID}
+	} else {
+		query = `SELECT id, username, text, file_url, file_name, timestamp, channel_id 
+		         FROM messages 
+		         WHERE channel_id IS NULL 
+		         ORDER BY timestamp ASC LIMIT 100`
+	}
+	
+	rows, err := db.Query(query, args...)
 	if err != nil {
-		log.Printf("DB ERROR: loadHistory query failed: %v", err)
-		return nil
+		http.Error(w, "Failed to load history", http.StatusInternalServerError)
+		return
 	}
 	defer rows.Close()
-	var msgs []Message
+
+	var messages []map[string]interface{}
 	for rows.Next() {
-		var m Message
-		err := rows.Scan(&m.ID, &m.Username, &m.Text, &m.IsFile, &m.FileName, &m.Type, &m.Timestamp)
+		var id, username, text string
+		var fileURL, fileName sql.NullString
+		var timestamp int64
+		var channelID sql.NullString
+		
+		err := rows.Scan(&id, &username, &text, &fileURL, &fileName, &timestamp, &channelID)
 		if err != nil {
 			continue
 		}
-		if m.IsFile {
-			m.FileUrl = "/api/file/" + m.ID
+		
+		msg := map[string]interface{}{
+			"id":        id,
+			"username":  username,
+			"text":      text,
+			"timestamp": timestamp,
 		}
-		msgs = append(msgs, m)
+		if fileURL.Valid {
+			msg["isFile"] = true
+			msg["fileUrl"] = fileURL.String
+			msg["fileName"] = fileName.String
+		}
+		if channelID.Valid {
+			msg["channelId"] = channelID.String
+		}
+		messages = append(messages, msg)
 	}
-	return msgs
+	json.NewEncoder(w).Encode(messages)
 }
-
 // Отправка события через Apinator (HTTP API)
 func triggerApinator(event string, data interface{}) error {
 	payload := map[string]interface{}{
