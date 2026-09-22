@@ -44,15 +44,16 @@ export async function getMe() {
   return apiRequest('/api/me');
 }
 
-export async function sendMessage(text: string, username: string) {
+export async function sendMessage(text: string, username: string, channelId?: string) {
   return apiRequest('/api/send', {
     method: 'POST',
-    body: JSON.stringify({ text, username }),
+    body: JSON.stringify({ text, username, channelId }),
   });
 }
 
-export async function loadHistory() {
-  return apiRequest('/api/messages');
+export async function loadHistory(channelId?: string) {
+  const query = channelId ? `?channel=${channelId}` : '';
+  return apiRequest('/api/messages' + query);
 }
 
 export async function deleteMessage(id: string, username: string) {
