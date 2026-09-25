@@ -445,6 +445,9 @@ func main() {
 	http.HandleFunc("/api/clear", requireAuth(clearChatHandler))
 	http.HandleFunc("/api/channels", listChannels)
 	http.HandleFunc("/api/channels/create", requireAuth(createChannel))
+		http.HandleFunc("/api/private/send", requireAuth(sendPrivateMessage))
+	http.HandleFunc("/api/private/history", requireAuth(loadPrivateHistory))
+	http.HandleFunc("/api/private/chats", requireAuth(listPrivateChats))
 	http.HandleFunc("/upload", uploadHandler)
 	http.HandleFunc("/api/file/", fileHandler)
 	http.HandleFunc("/api/vapid-public-key", func(w http.ResponseWriter, r *http.Request) {
