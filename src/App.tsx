@@ -14,13 +14,15 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-     useEffect(() => {
+       useEffect(() => {
     const token = getToken();
+    
+    // Жёсткий таймаут: через 10 секунд убираем загрузку в любом случае
+    const forceTimeout = setTimeout(() => {
+      setLoading(false);
+    }, 10000);
+    
     if (token) {
-      // Создаём AbortController для таймаута
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 секунд
-      
       getMe()
         .then((userData) => {
           setUser(userData);
@@ -30,14 +32,14 @@ export default function App() {
           clearToken();
         })
         .finally(() => {
-          clearTimeout(timeoutId);
+          clearTimeout(forceTimeout);
           setLoading(false);
         });
     } else {
+      clearTimeout(forceTimeout);
       setLoading(false);
     }
   }, []);
-
   useEffect(() => {
     if (currentChannelId) {
       fetchMessages();
