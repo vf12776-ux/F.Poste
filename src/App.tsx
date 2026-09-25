@@ -406,6 +406,51 @@ export default function App() {
             }}
             style={{ display: 'none' }}
           />
+                    <button 
+            type="button" 
+            onClick={async () => {
+              if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert('Запись голоса не поддерживается в этом браузере');
+                return;
+              }
+              try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const mediaRecorder = new MediaRecorder(stream);
+                const chunks: Blob[] = [];
+                
+                mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+                mediaRecorder.onstop = async () => {
+                  const blob = new Blob(chunks, { type: 'audio/webm' });
+                  const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+                  
+                  const formData = new FormData();
+                  formData.append('file', file);
+                  formData.append('username', user.username);
+                  if (currentChannelId) formData.append('channelId', currentChannelId);
+                  
+                  await fetch('/upload', { method: 'POST', body: formData });
+                  
+                  if (currentPrivateUser) {
+                    await sendPrivateMessage(currentPrivateUser, file.name);
+                    fetchPrivateMessages();
+                  } else if (currentChannelId) {
+                    await sendMessage(file.name, user.username, currentChannelId);
+                    fetchMessages();
+                  }
+                  
+                  stream.getTracks().forEach(track => track.stop());
+                };
+                
+                mediaRecorder.start();
+                alert('Запись началась. Нажмите OK, чтобы остановить.');
+                setTimeout(() => mediaRecorder.stop(), 10000); // Максимум 10 секунд
+              } catch (err) {
+                alert('Ошибка записи: ' + err);
+              }
+            }}
+            style={{ background: '#e74c3c', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px' }} 
+            title="Записать голос"
+          >🎤</button>
           <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ background: '#6c757d', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px' }} title="Прикрепить файл">📎</button>
           <input
             type="text"
