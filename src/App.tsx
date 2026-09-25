@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { getMe, getToken, clearToken, loadHistory, sendMessage, deleteMessage, clearChat, listChannels, createChannel } from './api';
 
 export default function App() {
+  const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [channels, setChannels] = useState<any[]>([]);
@@ -13,7 +14,7 @@ export default function App() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
+    useEffect(() => {
     const token = getToken();
     if (token) {
       getMe()
@@ -23,7 +24,10 @@ export default function App() {
         })
         .catch(() => {
           clearToken();
-        });
+        })
+        .finally(() => setLoading(false)); 
+    } else {
+      setLoading(false); 
     }
   }, []);
 
@@ -167,6 +171,13 @@ export default function App() {
     }
     return <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.text}</div>;
   };
+    if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f5f5f5' }}>
+        <h2>Загрузка...</h2>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
