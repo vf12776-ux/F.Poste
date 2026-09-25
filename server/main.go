@@ -280,6 +280,114 @@ func createChannel(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": id, "name": req.Name})
 }
+func sendPrivateMessage(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	var req struct {
+		To   string `json:"to"`
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	req.To = strings.ToLower(strings.TrimSpace(req.To))
+	if req.To == "" || req.To == username {
+		http.Error(w, "Invalid recipient", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" {
+		http.Error(w, "Empty message", http.StatusBadRequest)
+		return
+	}
+
+	_, err := db.Exec(`INSERT INTO private_messages (from_username, to_username, text, timestamp) VALUES ($1, $2, $3, $4)`,
+		username, req.To, req.Text, time.Now().Unix())
+	if err != nil {
+		http.Error(w, "Failed to send: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func loadPrivateHistory(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	other := r.URL.Query().Get("with")
+	if other == "" {
+		http.Error(w, "Missing 'with' param", http.StatusBadRequest)
+		return
+	}
+	other = strings.ToLower(strings.TrimSpace(other))
+
+	rows, err := db.Query(`SELECT id, from_username, to_username, text, file_url, file_name, timestamp 
+	                       FROM private_messages 
+	                       WHERE (from_username = $1 AND to_username = $2) 
+	                          OR (from_username = $2 AND to_username = $1)
+	                       ORDER BY timestamp ASC LIMIT 200`, username, other)
+	if err != nil {
+		http.Error(w, "Failed to load", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var messages []map[string]interface{}
+	for rows.Next() {
+		var id, from, to, text string
+		var fileURL, fileName sql.NullString
+		var timestamp int64
+		if err := rows.Scan(&id, &from, &to, &text, &fileURL, &fileName, &timestamp); err != nil {
+			continue
+		}
+		msg := map[string]interface{}{
+			"id":        id,
+			"from":      from,
+			"to":        to,
+			"text":      text,
+			"timestamp": timestamp,
+		}
+		if fileURL.Valid {
+			msg["isFile"] = true
+			msg["fileUrl"] = fileURL.String
+			msg["fileName"] = fileName.String
+		}
+		messages = append(messages, msg)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(messages)
+}
+
+func listPrivateChats(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	rows, err := db.Query(`
+		SELECT DISTINCT partner, last_ts 
+		FROM (
+			SELECT to_username AS partner, MAX(timestamp) AS last_ts 
+			FROM private_messages WHERE from_username = $1 GROUP BY to_username
+			UNION
+			SELECT from_username AS partner, MAX(timestamp) AS last_ts 
+			FROM private_messages WHERE to_username = $1 GROUP BY from_username
+		) AS combined
+		ORDER BY last_ts DESC`, username)
+	if err != nil {
+		http.Error(w, "Failed to load chats", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var chats []map[string]interface{}
+	for rows.Next() {
+		var partner string
+		var lastTs int64
+		if err := rows.Scan(&partner, &lastTs); err != nil {
+			continue
+		}
+		chats = append(chats, map[string]interface{}{
+			"partner":   partner,
+			"lastTs":    lastTs,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(chats)
+}
 
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
