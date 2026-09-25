@@ -79,3 +79,17 @@ export async function createChannel(name: string) {
     body: JSON.stringify({ name }),
   });
 }
+export async function sendPrivateMessage(to: string, text: string) {
+  return apiRequest('/api/private/send', {
+    method: 'POST',
+    body: JSON.stringify({ to, text }),
+  });
+}
+
+export async function loadPrivateHistory(withUser: string) {
+  return apiRequest(`/api/private/history?with=${withUser}`);
+}
+
+export async function listPrivateChats() {
+  return apiRequest('/api/private/chats');
+}
