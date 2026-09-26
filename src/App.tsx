@@ -1,433 +1,367 @@
-import { useState, useEffect, useRef } from 'react';
-import { getMe, getToken, clearToken, loadHistory, sendMessage, deleteMessage, clearChat, listChannels, createChannel, sendPrivateMessage, loadPrivateHistory, listPrivateChats } from './api';
+import React, { useState, useEffect, useRef } from 'react';
+import { getMe, getToken, clearToken, listChannels, loadHistory, sendMessage, listPrivateChats, loadPrivateHistory, sendPrivateMessage } from './api';
+
+// --- Типы данных ---
+interface User { username: string; display_name?: string }
+interface Channel { id: string; name: string }
+interface Message { id: string; username: string; text: string; file_url?: string; file_name?: string; timestamp: number; channel_id?: string }
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [channels, setChannels] = useState<any[]>([]);
-  const [currentChannelId, setCurrentChannelId] = useState<string | null>(null);
-  const [privateChats, setPrivateChats] = useState<any[]>([]);
-  const [currentPrivateUser, setCurrentPrivateUser] = useState<string | null>(null);
-  const [newMessage, setNewMessage] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(window.innerWidth > 768);
-  const [newChannelName, setNewChannelName] = useState('');
-  const [newPrivateUser, setNewPrivateUser] = useState('');
+  // --- Состояния ---
+  const [user, setUser] = useState<User | null>(null);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [channelMessages, setChannelMessages] = useState<Message[]>([]);
+
+  const [privateChats, setPrivateChats] = useState<string[]>([]);
+  const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
+  const [privateMessages, setPrivateMessages] = useState<Record<string, Message[]>>({});
+
+  const [inputText, setInputText] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Для мобильного UI
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Загрузка пользователя при старте
+  // --- Эффекты ---
   useEffect(() => {
-    const token = getToken();
-    const forceTimeout = setTimeout(() => setLoading(false), 10000);
-    
-    if (token) {
-      getMe()
-        .then((userData) => {
-          setUser(userData);
-          initApp();
-        })
-        .catch(() => clearToken())
-        .finally(() => {
-          clearTimeout(forceTimeout);
-          setLoading(false);
-        });
-    } else {
-      clearTimeout(forceTimeout);
-      setLoading(false);
-    }
+    checkAuth();
   }, []);
 
-  // Авто-скрытие sidebar на мобильных
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth <= 768) setShowSidebar(false);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // Авто-скролл вниз при новых сообщениях
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [channelMessages, privateMessages, activeChannelId, activePrivateChat]);
 
-  const initApp = async () => {
-    try {
-      const [chData, chatsData] = await Promise.all([listChannels(), listPrivateChats()]);
-      setChannels(chData || []);
-      setPrivateChats(chatsData || []);
-      if (chData && chData.length > 0) {
-        setCurrentChannelId(chData[0].id);
-        const msgs = await loadHistory(chData[0].id);
-        setMessages(msgs || []);
+  // --- Логика авторизации ---
+  const checkAuth = async () => {
+    const token = getToken();
+    if (token) {
+      try {
+        const userData = await getMe();
+        setUser(userData);
+        await loadInitialData();
+      } catch {
+        clearToken();
       }
-    } catch (e) {
-      console.error('Init failed:', e);
     }
+    setIsLoading(false);
   };
 
-  const switchToChannel = async (channelId: string) => {
-    setCurrentChannelId(channelId);
-    setCurrentPrivateUser(null);
-    try {
-      const msgs = await loadHistory(channelId);
-      setMessages(msgs || []);
-    } catch (e) {
-      console.error('Load channel failed:', e);
-      setMessages([]);
-    }
-    if (window.innerWidth <= 768) setShowSidebar(false);
-  };
-
-  const switchToPrivate = async (username: string) => {
-    setCurrentPrivateUser(username);
-    setCurrentChannelId(null);
-    try {
-      const msgs = await loadPrivateHistory(username);
-      setMessages(msgs || []);
-    } catch (e) {
-      console.error('Load private failed:', e);
-      setMessages([]);
-    }
-    if (window.innerWidth <= 768) setShowSidebar(false);
-  };
-
-  const handleSend = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !user) return;
-    
-    const text = newMessage;
-    setNewMessage('');
-    
-    // Сразу добавляем сообщение в UI (оптимистично)
-    const tempMsg = {
-      id: 'temp-' + Date.now(),
-      username: user.username,
-      from: user.username,
-      text: text,
-      timestamp: Math.floor(Date.now() / 1000)
-    };
-    setMessages(prev => [...prev, tempMsg]);
-
+    if (usernameInput.trim().length < 5) return alert('Минимум 5 символов');
+    setIsLoading(true);
     try {
-      if (currentPrivateUser) {
-        await sendPrivateMessage(currentPrivateUser, text);
-        // Перезагружаем историю, чтобы получить реальные ID
-        const msgs = await loadPrivateHistory(currentPrivateUser);
-        setMessages(msgs || []);
-      } else if (currentChannelId) {
-        await sendMessage(text, user.username, currentChannelId);
-        const msgs = await loadHistory(currentChannelId);
-        setMessages(msgs || []);
+      // Предполагается, что api.login возвращает токен и данные пользователя
+      // Если ваш api.ts называет это иначе, замените на ваш вызов
+      const response = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: usernameInput.trim() })
+      });
+      const data = await response.json();
+      if (data.token) {
+        localStorage.setItem('token', data.token);
+        setUser({ username: data.username });
+        await loadInitialData();
       }
-    } catch (e) {
-      console.error('Send failed:', e);
-      alert('Ошибка отправки: ' + e);
-      // Убираем временное сообщение при ошибке
-      setMessages(prev => prev.filter(m => m.id !== tempMsg.id));
+    } catch (err) {
+      alert('Ошибка входа');
     }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!user) return;
-    try {
-      await deleteMessage(id, user.username);
-      setMessages(prev => prev.filter(m => m.id !== id));
-    } catch (e) {
-      console.error('Delete failed:', e);
-    }
-  };
-
-  const handleClear = async () => {
-    if (!user || !window.confirm('Очистить весь чат?')) return;
-    try {
-      await clearChat(user.username);
-      setMessages([]);
-    } catch (e) {
-      console.error('Clear failed:', e);
-    }
+    setIsLoading(false);
   };
 
   const handleLogout = () => {
     clearToken();
     setUser(null);
-    setMessages([]);
+    setChannelMessages([]);
+    setPrivateMessages({});
   };
 
-  const handleCreateChannel = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newChannelName.trim()) return;
+  // --- Загрузка данных ---
+  const loadInitialData = async () => {
     try {
-      const channel = await createChannel(newChannelName.trim());
-      setChannels(prev => [...prev, channel]);
-      await switchToChannel(channel.id);
-      setNewChannelName('');
-    } catch (e) {
-      alert('Канал уже существует');
-    }
-  };
-
-  const handleStartPrivateChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPrivateUser.trim()) return;
-    const username = newPrivateUser.trim().toLowerCase();
-    if (username === user.username) {
-      alert('Нельзя написать себе');
-      return;
-    }
-    switchToPrivate(username);
-    setNewPrivateUser('');
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !user) return;
-    setUploading(true);
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('username', user.username);
-      if (currentChannelId) formData.append('channelId', currentChannelId);
-      await fetch('/upload', { method: 'POST', body: formData });
-      
-      if (currentPrivateUser) {
-        await sendPrivateMessage(currentPrivateUser, file.name);
-        const msgs = await loadPrivateHistory(currentPrivateUser);
-        setMessages(msgs || []);
-      } else if (currentChannelId) {
-        await sendMessage(file.name, user.username, currentChannelId);
-        const msgs = await loadHistory(currentChannelId);
-        setMessages(msgs || []);
+      const chs = await listChannels();
+      setChannels(chs);
+      if (chs.length > 0 && !activeChannelId && !activePrivateChat) {
+        const general = chs.find((c: Channel) => c.name === 'general') || chs[0];
+        setActiveChannelId(general.id);
+        await loadChannelMessages(general.id);
       }
-    } catch (e) {
-      console.error('Upload failed', e);
-      alert('Ошибка загрузки файла');
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      const pChats = await listPrivateChats();
+      setPrivateChats(pChats);
+    } catch (err) {
+      console.error('Ошибка загрузки данных:', err);
     }
   };
 
-  const renderMessageContent = (msg: any) => {
-    if (msg.isFile) {
-      const ext = msg.fileName?.split('.').pop()?.toLowerCase() || '';
-      const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
-      const isAudio = ['webm', 'ogg', 'mp3', 'm4a', 'wav'].includes(ext);
-      const isVideo = ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
-      const url = `/api/file/${msg.id}`;
-
-      if (isImage) return <img src={url} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />;
-      if (isVideo) return <video controls src={url} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />;
-      if (isAudio) return <audio controls src={url} style={{ maxWidth: '100%' }} />;
-      return <a href={url} download={msg.fileName} style={{ color: 'inherit', textDecoration: 'underline' }}>📎 {msg.fileName}</a>;
+  const loadChannelMessages = async (channelId: string) => {
+    try {
+      const msgs = await loadHistory(channelId);
+      setChannelMessages(msgs);
+    } catch (err) {
+      console.error('Ошибка загрузки истории канала:', err);
     }
-    return <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.text}</div>;
   };
 
-  const isMyMessage = (msg: any) => {
-    if (currentPrivateUser) return msg.from === user.username;
-    return msg.username === user.username;
+  const loadPrivateMessages = async (targetUsername: string) => {
+    try {
+      const msgs = await loadPrivateHistory(targetUsername);
+      setPrivateMessages(prev => ({ ...prev, [targetUsername]: msgs }));
+    } catch (err) {
+      console.error('Ошибка загрузки истории ЛС:', err);
+    }
   };
 
-  // ЭКРАН ЗАГРУЗКИ
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f5f5f5' }}>
-        <h2>Загрузка...</h2>
-      </div>
-    );
-  }
+  // --- Обработчики переключения ---
+  const selectChannel = async (channelId: string) => {
+    setActiveChannelId(channelId);
+    setActivePrivateChat(null);
+    setIsSidebarOpen(false); // Закрываем сайдбар на мобильном
+    setInputText('');
+    await loadChannelMessages(channelId);
+  };
 
-  // ЭКРАН ВХОДА
+  const selectPrivateChat = async (username: string) => {
+    setActivePrivateChat(username);
+    setActiveChannelId(null);
+    setIsSidebarOpen(false); // Закрываем сайдбар на мобильном
+    setInputText('');
+    if (!privateMessages[username]) {
+      await loadPrivateMessages(username);
+    }
+  };
+
+  // --- Отправка сообщений (Приоритет №2: Оптимистичное обновление) ---
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault(); // Критично: предотвращает перезагрузку страницы и сброс в #general
+    if (!inputText.trim() || !user) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const newMessage: Message = {
+      id: tempId,
+      username: user.username,
+      text: inputText.trim(),
+      timestamp: Date.now(),
+    };
+
+    const textToSend = inputText.trim();
+    setInputText(''); // Очищаем поле сразу
+
+    if (activeChannelId) {
+      // 1. Оптимистично добавляем в UI
+      setChannelMessages(prev => [...prev, newMessage]);
+      try {
+        await sendMessage(activeChannelId, textToSend);
+        // После успеха можно перезагрузить историю для синхронизации ID, 
+        // но для скорости оставляем оптимистичное сообщение (сервер должен вернуть тот же текст)
+      } catch (err) {
+        alert('Ошибка отправки');
+        setChannelMessages(prev => prev.filter(m => m.id !== tempId)); // Откат при ошибке
+      }
+    } else if (activePrivateChat) {
+      // 1. Оптимистично добавляем в UI
+      setPrivateMessages(prev => ({
+        ...prev,
+        [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
+      }));
+      try {
+        await sendPrivateMessage(activePrivateChat, textToSend);
+      } catch (err) {
+        alert('Ошибка отправки ЛС');
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== tempId)
+        }));
+      }
+    }
+  };
+
+  // --- Рендер: Экран входа ---
   if (!user) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f5f5f5', padding: '20px' }}>
-        <h1>F.Poste</h1>
-        <form onSubmit={async (e) => {
-          e.preventDefault();
-          const input = (e.target as any).elements.username;
-          const username = input.value.trim().toLowerCase();
-          if (username.length < 5) {
-            alert('Минимум 5 символов');
-            return;
-          }
-          try {
-            const res = await fetch('/api/login', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username, displayName: username })
-            });
-            if (!res.ok) {
-              alert('Ошибка входа: ' + await res.text());
-              return;
-            }
-            const data = await res.json();
-            if (data.token) {
-              localStorage.setItem('fposte_token', data.token);
-              setTimeout(() => window.location.reload(), 100);
-            }
-          } catch (err) {
-            alert('Ошибка соединения: ' + err);
-          }
-        }} style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '300px' }}>
-          <input name="username" placeholder="Ник (мин. 5 символов)" required style={{ padding: '10px', fontSize: '16px' }} />
-          <button type="submit" style={{ padding: '10px', background: '#007bff', color: 'white', border: 'none', cursor: 'pointer', fontSize: '16px' }}>Войти</button>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif' }}>
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem', border: '1px solid #ccc', borderRadius: '8px' }}>
+          <h2>Вход в F.Poste</h2>
+          <input
+            type="text"
+            placeholder="Введите ник (мин. 5 символов)"
+            value={usernameInput}
+            onChange={(e) => setUsernameInput(e.target.value)}
+            style={{ padding: '0.5rem', fontSize: '1rem' }}
+            disabled={isLoading}
+          />
+          <button type="submit" disabled={isLoading} style={{ padding: '0.5rem', fontSize: '1rem', cursor: 'pointer' }}>
+            {isLoading ? 'Вход...' : 'Войти'}
+          </button>
         </form>
       </div>
     );
   }
 
-  // ОСНОВНОЙ ИНТЕРФЕЙС
-  return (
-    <div style={{ display: 'flex', height: '100vh', background: '#f5f5f5', overflow: 'hidden' }}>
-      {/* SIDEBAR */}
-      {showSidebar && (
-        <div style={{ 
-          width: window.innerWidth <= 768 ? '100%' : '250px', 
-          position: window.innerWidth <= 768 ? 'absolute' : 'relative',
-          zIndex: 10,
-          background: '#2c3e50', 
-          color: 'white', 
-          display: 'flex', 
-          flexDirection: 'column',
-          height: '100%'
-        }}>
-          <div style={{ padding: '15px', borderBottom: '1px solid #34495e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ margin: 0 }}>Каналы</h3>
-            {window.innerWidth <= 768 && (
-              <button onClick={() => setShowSidebar(false)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '20px', cursor: 'pointer' }}>✕</button>
-            )}
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
-            {channels.map((ch) => (
-              <div
-                key={ch.id}
-                onClick={() => switchToChannel(ch.id)}
-                style={{
-                  padding: '10px',
-                  cursor: 'pointer',
-                  background: currentChannelId === ch.id && !currentPrivateUser ? '#34495e' : 'transparent',
-                  borderRadius: '4px',
-                  marginBottom: '5px'
-                }}
-              >
-                #{ch.name}
-              </div>
-            ))}
-          </div>
-          <form onSubmit={handleCreateChannel} style={{ padding: '10px', borderTop: '1px solid #34495e' }}>
-            <input
-              type="text"
-              value={newChannelName}
-              onChange={(e) => setNewChannelName(e.target.value)}
-              placeholder="Новый канал"
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: 'none', marginBottom: '5px', boxSizing: 'border-box' }}
-            />
-            <button type="submit" style={{ width: '100%', padding: '8px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Создать</button>
-          </form>
+  // --- Рендер: Основной интерфейс ---
+  const currentMessages = activeChannelId 
+    ? channelMessages 
+    : (activePrivateChat ? (privateMessages[activePrivateChat] || []) : []);
 
-          <div style={{ padding: '15px', borderTop: '1px solid #34495e' }}>
-            <h3 style={{ margin: 0, marginBottom: '10px' }}>Личные</h3>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
-            {privateChats.length === 0 && <div style={{ padding: '10px', opacity: 0.6, fontSize: '14px' }}>Нет диалогов</div>}
-            {privateChats.map((chat) => (
-              <div
-                key={chat.partner}
-                onClick={() => switchToPrivate(chat.partner)}
-                style={{
-                  padding: '10px',
-                  cursor: 'pointer',
-                  background: currentPrivateUser === chat.partner ? '#34495e' : 'transparent',
+  return (
+    <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden' }}>
+      
+      {/* Мобильная кнопка меню */}
+      <button 
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        style={{ position: 'fixed', top: '10px', left: '10px', zIndex: 100, padding: '8px', display: 'none' }}
+        className="mobile-menu-btn" // Добавьте в CSS: @media (max-width: 768px) { .mobile-menu-btn { display: block !important; } }
+      >
+        ☰
+      </button>
+
+      {/* Сайдбар */}
+      <div style={{
+        width: '280px',
+        borderRight: '1px solid #ddd',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: '#f9f9f9',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        height: '100%',
+        zIndex: 50,
+        transform: isSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
+        transition: 'transform 0.3s ease',
+      }} className="sidebar-desktop"> 
+      {/* Добавьте в CSS: @media (min-width: 769px) { .sidebar-desktop { position: relative !important; transform: none !important; } } */}
+
+        <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Привет, <b>{user.username}</b></span>
+          <button onClick={handleLogout} style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'red' }}>Выйти</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
+          <h3 style={{ marginTop: 0 }}>Каналы</h3>
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            {channels.map(ch => (
+              <li 
+                key={ch.id} 
+                onClick={() => selectChannel(ch.id)}
+                style={{ 
+                  padding: '8px', 
+                  cursor: 'pointer', 
                   borderRadius: '4px',
-                  marginBottom: '5px'
+                  backgroundColor: activeChannelId === ch.id ? '#e0e7ff' : 'transparent'
                 }}
               >
-                @{chat.partner}
-              </div>
+                # {ch.name}
+              </li>
             ))}
-          </div>
-          <form onSubmit={handleStartPrivateChat} style={{ padding: '10px', borderTop: '1px solid #34495e' }}>
-            <input
-              type="text"
-              value={newPrivateUser}
-              onChange={(e) => setNewPrivateUser(e.target.value)}
-              placeholder="Ник пользователя"
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: 'none', marginBottom: '5px', boxSizing: 'border-box' }}
-            />
-            <button type="submit" style={{ width: '100%', padding: '8px', background: '#9b59b6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Написать</button>
+          </ul>
+
+          <h3>Личные чаты</h3>
+          <ul style={{ listStyle: 'none', padding: 0 }}>
+            {privateChats.map(username => (
+              <li 
+                key={username} 
+                onClick={() => selectPrivateChat(username)}
+                style={{ 
+                  padding: '8px', 
+                  cursor: 'pointer', 
+                  borderRadius: '4px',
+                  backgroundColor: activePrivateChat === username ? '#e0e7ff' : 'transparent'
+                }}
+              >
+                👤 {username}
+              </li>
+            ))}
+          </ul>
+          
+          {/* Простая форма начала нового ЛС */}
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const target = (e.target as any).newChatUser.value.trim();
+            if (target && target !== user.username) {
+              if (!privateChats.includes(target)) setPrivateChats(prev => [...prev, target]);
+              selectPrivateChat(target);
+              (e.target as any).newChatUser.value = '';
+            }
+          }} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+            <input name="newChatUser" placeholder="Ник для ЛС" style={{ flex: 1, padding: '4px' }} />
+            <button type="submit" style={{ cursor: 'pointer' }}>OK</button>
           </form>
         </div>
+      </div>
+
+      {/* Затемнение фона для мобильного меню */}
+      {isSidebarOpen && (
+        <div 
+          onClick={() => setIsSidebarOpen(false)}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 40 }}
+          className="mobile-backdrop"
+        />
       )}
 
-      {/* MAIN AREA */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', minWidth: 0 }}>
-        <header style={{ padding: '15px', background: '#007bff', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
-            <button onClick={() => setShowSidebar(!showSidebar)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', flexShrink: 0 }}>☰</button>
-            <h2 style={{ margin: 0, fontSize: window.innerWidth <= 768 ? '16px' : '20px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {currentPrivateUser 
-                ? `@${currentPrivateUser}` 
-                : channels.find(c => c.id === currentChannelId)?.name 
-                  ? `#${channels.find(c => c.id === currentChannelId)?.name}` 
-                  : 'Выбери канал'}
-            </h2>
-          </div>
-          <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
-            {!currentPrivateUser && (
-              <button onClick={handleClear} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: window.innerWidth <= 768 ? '12px' : '14px' }}>Очистить</button>
-            )}
-            <button onClick={handleLogout} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: window.innerWidth <= 768 ? '12px' : '14px' }}>Выйти</button>
-          </div>
-        </header>
+      {/* Основная область чата */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
+        {/* Заголовок чата */}
+        <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>
+          {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
+        </div>
 
-        <div style={{ flex: 1, overflowY: 'auto', padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {messages.length === 0 && (
-            <div style={{ textAlign: 'center', color: '#999', marginTop: '50px' }}>
-              Нет сообщений. Напиши первое!
-            </div>
-          )}
-          {messages.map((msg) => (
+        {/* Список сообщений */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {currentMessages.length === 0 && <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>}
+          {currentMessages.map(msg => (
             <div key={msg.id} style={{ 
-              alignSelf: isMyMessage(msg) ? 'flex-end' : 'flex-start',
-              background: isMyMessage(msg) ? '#007bff' : '#e9ecef',
-              color: isMyMessage(msg) ? 'white' : 'black',
-              padding: '10px 15px',
-              borderRadius: '15px',
-              maxWidth: '80%',
-              position: 'relative',
-              wordBreak: 'break-word'
+              alignSelf: msg.username === user.username ? 'flex-end' : 'flex-start',
+              backgroundColor: msg.username === user.username ? '#d1fae5' : '#f3f4f6',
+              padding: '0.5rem 1rem',
+              borderRadius: '12px',
+              maxWidth: '70%'
             }}>
-              <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>
-                {currentPrivateUser ? msg.from : msg.username}
-              </div>
-              {renderMessageContent(msg)}
-              {isMyMessage(msg) && !msg.id.startsWith('temp-') && (
-                <button 
-                  onClick={() => handleDelete(msg.id)}
-                  style={{ position: 'absolute', top: '-8px', right: '-8px', background: '#ff4444', color: 'white', border: 'none', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontSize: '14px', lineHeight: '18px' }}
-                >×</button>
+              {msg.username !== user.username && <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '2px' }}>{msg.username}</div>}
+              <div>{msg.text}</div>
+              {msg.file_url && (
+                <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
+                  📎 {msg.file_name || 'Файл'}
+                </a>
               )}
+              <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px' }}>
+                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </div>
             </div>
           ))}
           <div ref={messagesEndRef} />
         </div>
 
-        <form onSubmit={handleSend} style={{ padding: '15px', background: 'white', borderTop: '1px solid #ddd', display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
-          <input type="file" ref={fileInputRef} onChange={handleFileUpload} style={{ display: 'none' }} />
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ background: '#6c757d', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px', flexShrink: 0 }} title="Файл">📎</button>
+        {/* Форма ввода */}
+        <form onSubmit={handleSendMessage} style={{ padding: '1rem', borderTop: '1px solid #ddd', display: 'flex', gap: '0.5rem' }}>
           <input
             type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder={currentPrivateUser ? `@${currentPrivateUser}...` : "Сообщение..."}
-            style={{ flex: 1, padding: '10px', borderRadius: '20px', border: '1px solid #ddd', outline: 'none', minWidth: 0, fontSize: '16px' }}
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            placeholder={activePrivateChat ? `Сообщение для ${activePrivateChat}...` : "Введите сообщение..."}
+            style={{ flex: 1, padding: '0.75rem', borderRadius: '20px', border: '1px solid #ccc', outline: 'none' }}
           />
-          <button type="submit" disabled={uploading} style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', flexShrink: 0 }}>➤</button>
+          <button type="submit" disabled={!inputText.trim()} style={{ padding: '0 1.5rem', borderRadius: '20px', border: 'none', backgroundColor: '#2563eb', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>
+            ➤
+          </button>
         </form>
       </div>
+
+      {/* Глобальные стили для адаптивности (в идеале вынести в index.css) */}
+      <style>{`
+        @media (min-width: 769px) {
+          .sidebar-desktop { position: relative !important; transform: none !important; }
+          .mobile-menu-btn { display: none !important; }
+          .mobile-backdrop { display: none !important; }
+          .main-area { margin-left: 0 !important; }
+        }
+        @media (max-width: 768px) {
+          .sidebar-desktop { width: 80% !important; max-width: 300px !important; box-shadow: 2px 0 8px rgba(0,0,0,0.1); }
+        }
+      `}</style>
     </div>
   );
 }
