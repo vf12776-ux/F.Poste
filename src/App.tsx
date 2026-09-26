@@ -11,28 +11,24 @@ export default function App() {
   const [currentPrivateUser, setCurrentPrivateUser] = useState<string | null>(null);
   const [newMessage, setNewMessage] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(window.innerWidth > 768);
   const [newChannelName, setNewChannelName] = useState('');
   const [newPrivateUser, setNewPrivateUser] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Загрузка пользователя при старте
   useEffect(() => {
     const token = getToken();
-    const forceTimeout = setTimeout(() => {
-      setLoading(false);
-    }, 10000);
+    const forceTimeout = setTimeout(() => setLoading(false), 10000);
     
     if (token) {
       getMe()
         .then((userData) => {
           setUser(userData);
-          loadChannels();
-          loadPrivateChatsList();
+          initApp();
         })
-        .catch(() => {
-          clearToken();
-        })
+        .catch(() => clearToken())
         .finally(() => {
           clearTimeout(forceTimeout);
           setLoading(false);
@@ -43,61 +39,59 @@ export default function App() {
     }
   }, []);
 
+  // Авто-скрытие sidebar на мобильных
   useEffect(() => {
-    if (currentChannelId && !currentPrivateUser) {
-      fetchMessages();
-    }
-  }, [currentChannelId]);
+    const handleResize = () => {
+      if (window.innerWidth <= 768) setShowSidebar(false);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  useEffect(() => {
-    if (currentPrivateUser) {
-      fetchPrivateMessages();
-    }
-  }, [currentPrivateUser]);
-
+  // Авто-скролл вниз при новых сообщениях
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const loadChannels = async () => {
+  const initApp = async () => {
     try {
-      const data = await listChannels();
-      setChannels(data || []);
-      if (data && data.length > 0 && !currentChannelId && !currentPrivateUser) {
-        setCurrentChannelId(data[0].id);
+      const [chData, chatsData] = await Promise.all([listChannels(), listPrivateChats()]);
+      setChannels(chData || []);
+      setPrivateChats(chatsData || []);
+      if (chData && chData.length > 0) {
+        setCurrentChannelId(chData[0].id);
+        const msgs = await loadHistory(chData[0].id);
+        setMessages(msgs || []);
       }
     } catch (e) {
-      console.error('Failed to load channels', e);
+      console.error('Init failed:', e);
     }
   };
 
-  const loadPrivateChatsList = async () => {
+  const switchToChannel = async (channelId: string) => {
+    setCurrentChannelId(channelId);
+    setCurrentPrivateUser(null);
     try {
-      const data = await listPrivateChats();
-      setPrivateChats(data || []);
+      const msgs = await loadHistory(channelId);
+      setMessages(msgs || []);
     } catch (e) {
-      console.error('Failed to load private chats', e);
+      console.error('Load channel failed:', e);
+      setMessages([]);
     }
+    if (window.innerWidth <= 768) setShowSidebar(false);
   };
 
-  const fetchMessages = async () => {
-    if (!currentChannelId) return;
+  const switchToPrivate = async (username: string) => {
+    setCurrentPrivateUser(username);
+    setCurrentChannelId(null);
     try {
-      const data = await loadHistory(currentChannelId);
-      setMessages(data || []);
+      const msgs = await loadPrivateHistory(username);
+      setMessages(msgs || []);
     } catch (e) {
-      console.error('Failed to load history', e);
+      console.error('Load private failed:', e);
+      setMessages([]);
     }
-  };
-
-  const fetchPrivateMessages = async () => {
-    if (!currentPrivateUser) return;
-    try {
-      const data = await loadPrivateHistory(currentPrivateUser);
-      setMessages(data || []);
-    } catch (e) {
-      console.error('Failed to load private history', e);
-    }
+    if (window.innerWidth <= 768) setShowSidebar(false);
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -106,18 +100,33 @@ export default function App() {
     
     const text = newMessage;
     setNewMessage('');
+    
+    // Сразу добавляем сообщение в UI (оптимистично)
+    const tempMsg = {
+      id: 'temp-' + Date.now(),
+      username: user.username,
+      from: user.username,
+      text: text,
+      timestamp: Math.floor(Date.now() / 1000)
+    };
+    setMessages(prev => [...prev, tempMsg]);
 
     try {
       if (currentPrivateUser) {
         await sendPrivateMessage(currentPrivateUser, text);
-        fetchPrivateMessages();
+        // Перезагружаем историю, чтобы получить реальные ID
+        const msgs = await loadPrivateHistory(currentPrivateUser);
+        setMessages(msgs || []);
       } else if (currentChannelId) {
         await sendMessage(text, user.username, currentChannelId);
-        fetchMessages();
+        const msgs = await loadHistory(currentChannelId);
+        setMessages(msgs || []);
       }
     } catch (e) {
-      console.error('Failed to send', e);
-      alert('Ошибка отправки');
+      console.error('Send failed:', e);
+      alert('Ошибка отправки: ' + e);
+      // Убираем временное сообщение при ошибке
+      setMessages(prev => prev.filter(m => m.id !== tempMsg.id));
     }
   };
 
@@ -127,7 +136,7 @@ export default function App() {
       await deleteMessage(id, user.username);
       setMessages(prev => prev.filter(m => m.id !== id));
     } catch (e) {
-      console.error('Failed to delete', e);
+      console.error('Delete failed:', e);
     }
   };
 
@@ -137,7 +146,7 @@ export default function App() {
       await clearChat(user.username);
       setMessages([]);
     } catch (e) {
-      console.error('Failed to clear', e);
+      console.error('Clear failed:', e);
     }
   };
 
@@ -153,11 +162,10 @@ export default function App() {
     try {
       const channel = await createChannel(newChannelName.trim());
       setChannels(prev => [...prev, channel]);
-      setCurrentChannelId(channel.id);
-      setCurrentPrivateUser(null);
+      await switchToChannel(channel.id);
       setNewChannelName('');
     } catch (e) {
-      alert('Канал уже существует или ошибка создания');
+      alert('Канал уже существует');
     }
   };
 
@@ -169,15 +177,36 @@ export default function App() {
       alert('Нельзя написать себе');
       return;
     }
-    setCurrentPrivateUser(username);
-    setCurrentChannelId(null);
+    switchToPrivate(username);
     setNewPrivateUser('');
   };
 
-  const handleBackToChannels = () => {
-    setCurrentPrivateUser(null);
-    if (channels.length > 0) {
-      setCurrentChannelId(channels[0].id);
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('username', user.username);
+      if (currentChannelId) formData.append('channelId', currentChannelId);
+      await fetch('/upload', { method: 'POST', body: formData });
+      
+      if (currentPrivateUser) {
+        await sendPrivateMessage(currentPrivateUser, file.name);
+        const msgs = await loadPrivateHistory(currentPrivateUser);
+        setMessages(msgs || []);
+      } else if (currentChannelId) {
+        await sendMessage(file.name, user.username, currentChannelId);
+        const msgs = await loadHistory(currentChannelId);
+        setMessages(msgs || []);
+      }
+    } catch (e) {
+      console.error('Upload failed', e);
+      alert('Ошибка загрузки файла');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -186,19 +215,23 @@ export default function App() {
       const ext = msg.fileName?.split('.').pop()?.toLowerCase() || '';
       const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
       const isAudio = ['webm', 'ogg', 'mp3', 'm4a', 'wav'].includes(ext);
+      const isVideo = ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(ext);
       const url = `/api/file/${msg.id}`;
 
-      if (isImage) {
-        return <img src={url} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', display: 'block' }} />;
-      }
-      if (isAudio) {
-        return <audio controls src={url} style={{ maxWidth: '100%' }} />;
-      }
+      if (isImage) return <img src={url} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />;
+      if (isVideo) return <video controls src={url} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />;
+      if (isAudio) return <audio controls src={url} style={{ maxWidth: '100%' }} />;
       return <a href={url} download={msg.fileName} style={{ color: 'inherit', textDecoration: 'underline' }}>📎 {msg.fileName}</a>;
     }
     return <div style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{msg.text}</div>;
   };
 
+  const isMyMessage = (msg: any) => {
+    if (currentPrivateUser) return msg.from === user.username;
+    return msg.username === user.username;
+  };
+
+  // ЭКРАН ЗАГРУЗКИ
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f5f5f5' }}>
@@ -207,9 +240,10 @@ export default function App() {
     );
   }
 
+  // ЭКРАН ВХОДА
   if (!user) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f5f5f5' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f5f5f5', padding: '20px' }}>
         <h1>F.Poste</h1>
         <form onSubmit={async (e) => {
           e.preventDefault();
@@ -226,43 +260,51 @@ export default function App() {
               body: JSON.stringify({ username, displayName: username })
             });
             if (!res.ok) {
-              const errorText = await res.text();
-              alert('Ошибка входа: ' + errorText);
+              alert('Ошибка входа: ' + await res.text());
               return;
             }
             const data = await res.json();
             if (data.token) {
               localStorage.setItem('fposte_token', data.token);
               setTimeout(() => window.location.reload(), 100);
-            } else {
-              alert('Сервер не вернул токен');
             }
           } catch (err) {
             alert('Ошибка соединения: ' + err);
           }
-        }} style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '300px' }}>
-          <input name="username" placeholder="Ник (мин. 5 символов)" required style={{ padding: '10px' }} />
-          <button type="submit" style={{ padding: '10px', background: '#007bff', color: 'white', border: 'none', cursor: 'pointer' }}>Войти</button>
+        }} style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '300px' }}>
+          <input name="username" placeholder="Ник (мин. 5 символов)" required style={{ padding: '10px', fontSize: '16px' }} />
+          <button type="submit" style={{ padding: '10px', background: '#007bff', color: 'white', border: 'none', cursor: 'pointer', fontSize: '16px' }}>Войти</button>
         </form>
       </div>
     );
   }
 
+  // ОСНОВНОЙ ИНТЕРФЕЙС
   return (
-    <div style={{ display: 'flex', height: '100vh', background: '#f5f5f5' }}>
+    <div style={{ display: 'flex', height: '100vh', background: '#f5f5f5', overflow: 'hidden' }}>
+      {/* SIDEBAR */}
       {showSidebar && (
-        <div style={{ width: '250px', background: '#2c3e50', color: 'white', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '15px', borderBottom: '1px solid #34495e' }}>
+        <div style={{ 
+          width: window.innerWidth <= 768 ? '100%' : '250px', 
+          position: window.innerWidth <= 768 ? 'absolute' : 'relative',
+          zIndex: 10,
+          background: '#2c3e50', 
+          color: 'white', 
+          display: 'flex', 
+          flexDirection: 'column',
+          height: '100%'
+        }}>
+          <div style={{ padding: '15px', borderBottom: '1px solid #34495e', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ margin: 0 }}>Каналы</h3>
+            {window.innerWidth <= 768 && (
+              <button onClick={() => setShowSidebar(false)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: '20px', cursor: 'pointer' }}>✕</button>
+            )}
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
             {channels.map((ch) => (
               <div
                 key={ch.id}
-                onClick={() => {
-                  setCurrentChannelId(ch.id);
-                  setCurrentPrivateUser(null);
-                }}
+                onClick={() => switchToChannel(ch.id)}
                 style={{
                   padding: '10px',
                   cursor: 'pointer',
@@ -281,7 +323,7 @@ export default function App() {
               value={newChannelName}
               onChange={(e) => setNewChannelName(e.target.value)}
               placeholder="Новый канал"
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: 'none', marginBottom: '5px' }}
+              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: 'none', marginBottom: '5px', boxSizing: 'border-box' }}
             />
             <button type="submit" style={{ width: '100%', padding: '8px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Создать</button>
           </form>
@@ -290,13 +332,11 @@ export default function App() {
             <h3 style={{ margin: 0, marginBottom: '10px' }}>Личные</h3>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
+            {privateChats.length === 0 && <div style={{ padding: '10px', opacity: 0.6, fontSize: '14px' }}>Нет диалогов</div>}
             {privateChats.map((chat) => (
               <div
                 key={chat.partner}
-                onClick={() => {
-                  setCurrentPrivateUser(chat.partner);
-                  setCurrentChannelId(null);
-                }}
+                onClick={() => switchToPrivate(chat.partner)}
                 style={{
                   padding: '10px',
                   cursor: 'pointer',
@@ -315,33 +355,31 @@ export default function App() {
               value={newPrivateUser}
               onChange={(e) => setNewPrivateUser(e.target.value)}
               placeholder="Ник пользователя"
-              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: 'none', marginBottom: '5px' }}
+              style={{ width: '100%', padding: '8px', borderRadius: '4px', border: 'none', marginBottom: '5px', boxSizing: 'border-box' }}
             />
             <button type="submit" style={{ width: '100%', padding: '8px', background: '#9b59b6', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Написать</button>
           </form>
         </div>
       )}
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <header style={{ padding: '15px', background: '#007bff', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <button onClick={() => setShowSidebar(!showSidebar)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>☰</button>
-            <h2 style={{ margin: 0 }}>
+      {/* MAIN AREA */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100vh', minWidth: 0 }}>
+        <header style={{ padding: '15px', background: '#007bff', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+            <button onClick={() => setShowSidebar(!showSidebar)} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', flexShrink: 0 }}>☰</button>
+            <h2 style={{ margin: 0, fontSize: window.innerWidth <= 768 ? '16px' : '20px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentPrivateUser 
                 ? `@${currentPrivateUser}` 
                 : channels.find(c => c.id === currentChannelId)?.name 
                   ? `#${channels.find(c => c.id === currentChannelId)?.name}` 
                   : 'Выбери канал'}
             </h2>
-            {currentPrivateUser && (
-              <button onClick={handleBackToChannels} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>← Назад</button>
-            )}
           </div>
-          <div>
+          <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
             {!currentPrivateUser && (
-              <button onClick={handleClear} style={{ marginRight: '10px', background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>Очистить</button>
+              <button onClick={handleClear} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: window.innerWidth <= 768 ? '12px' : '14px' }}>Очистить</button>
             )}
-            <button onClick={handleLogout} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>Выйти</button>
+            <button onClick={handleLogout} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: window.innerWidth <= 768 ? '12px' : '14px' }}>Выйти</button>
           </div>
         </header>
 
@@ -353,19 +391,20 @@ export default function App() {
           )}
           {messages.map((msg) => (
             <div key={msg.id} style={{ 
-              alignSelf: (currentPrivateUser ? msg.from === user.username : msg.username === user.username) ? 'flex-end' : 'flex-start',
-              background: (currentPrivateUser ? msg.from === user.username : msg.username === user.username) ? '#007bff' : '#e9ecef',
-              color: (currentPrivateUser ? msg.from === user.username : msg.username === user.username) ? 'white' : 'black',
+              alignSelf: isMyMessage(msg) ? 'flex-end' : 'flex-start',
+              background: isMyMessage(msg) ? '#007bff' : '#e9ecef',
+              color: isMyMessage(msg) ? 'white' : 'black',
               padding: '10px 15px',
               borderRadius: '15px',
-              maxWidth: '70%',
-              position: 'relative'
+              maxWidth: '80%',
+              position: 'relative',
+              wordBreak: 'break-word'
             }}>
               <div style={{ fontSize: '12px', opacity: 0.7, marginBottom: '4px' }}>
                 {currentPrivateUser ? msg.from : msg.username}
               </div>
               {renderMessageContent(msg)}
-              {(currentPrivateUser ? msg.from === user.username : msg.username === user.username) && (
+              {isMyMessage(msg) && !msg.id.startsWith('temp-') && (
                 <button 
                   onClick={() => handleDelete(msg.id)}
                   style={{ position: 'absolute', top: '-8px', right: '-8px', background: '#ff4444', color: 'white', border: 'none', borderRadius: '50%', width: '20px', height: '20px', cursor: 'pointer', fontSize: '14px', lineHeight: '18px' }}
@@ -376,90 +415,17 @@ export default function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        <form onSubmit={handleSend} style={{ padding: '15px', background: 'white', borderTop: '1px solid #ddd', display: 'flex', gap: '10px', alignItems: 'center' }}>
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file || !user) return;
-              setUploading(true);
-              try {
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('username', user.username);
-                if (currentChannelId) formData.append('channelId', currentChannelId);
-                await fetch('/upload', { method: 'POST', body: formData });
-                if (currentPrivateUser) {
-                  await sendPrivateMessage(currentPrivateUser, file.name);
-                  fetchPrivateMessages();
-                } else if (currentChannelId) {
-                  await sendMessage(file.name, user.username, currentChannelId);
-                  fetchMessages();
-                }
-              } catch (e) {
-                console.error('Upload failed', e);
-              } finally {
-                setUploading(false);
-                if (fileInputRef.current) fileInputRef.current.value = '';
-              }
-            }}
-            style={{ display: 'none' }}
-          />
-                    <button 
-            type="button" 
-            onClick={async () => {
-              if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                alert('Запись голоса не поддерживается в этом браузере');
-                return;
-              }
-              try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                const mediaRecorder = new MediaRecorder(stream);
-                const chunks: Blob[] = [];
-                
-                mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-                mediaRecorder.onstop = async () => {
-                  const blob = new Blob(chunks, { type: 'audio/webm' });
-                  const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
-                  
-                  const formData = new FormData();
-                  formData.append('file', file);
-                  formData.append('username', user.username);
-                  if (currentChannelId) formData.append('channelId', currentChannelId);
-                  
-                  await fetch('/upload', { method: 'POST', body: formData });
-                  
-                  if (currentPrivateUser) {
-                    await sendPrivateMessage(currentPrivateUser, file.name);
-                    fetchPrivateMessages();
-                  } else if (currentChannelId) {
-                    await sendMessage(file.name, user.username, currentChannelId);
-                    fetchMessages();
-                  }
-                  
-                  stream.getTracks().forEach(track => track.stop());
-                };
-                
-                mediaRecorder.start();
-                alert('Запись началась. Нажмите OK, чтобы остановить.');
-                setTimeout(() => mediaRecorder.stop(), 10000); // Максимум 10 секунд
-              } catch (err) {
-                alert('Ошибка записи: ' + err);
-              }
-            }}
-            style={{ background: '#e74c3c', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px' }} 
-            title="Записать голос"
-          >🎤</button>
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ background: '#6c757d', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px' }} title="Прикрепить файл">📎</button>
+        <form onSubmit={handleSend} style={{ padding: '15px', background: 'white', borderTop: '1px solid #ddd', display: 'flex', gap: '10px', alignItems: 'center', flexShrink: 0 }}>
+          <input type="file" ref={fileInputRef} onChange={handleFileUpload} style={{ display: 'none' }} />
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} style={{ background: '#6c757d', color: 'white', border: 'none', borderRadius: '50%', width: '40px', height: '40px', cursor: 'pointer', fontSize: '18px', flexShrink: 0 }} title="Файл">📎</button>
           <input
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            placeholder={currentPrivateUser ? `Написать @${currentPrivateUser}...` : "Введите сообщение..."}
-            style={{ flex: 1, padding: '10px', borderRadius: '20px', border: '1px solid #ddd', outline: 'none' }}
+            placeholder={currentPrivateUser ? `@${currentPrivateUser}...` : "Сообщение..."}
+            style={{ flex: 1, padding: '10px', borderRadius: '20px', border: '1px solid #ddd', outline: 'none', minWidth: 0, fontSize: '16px' }}
           />
-          <button type="submit" style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer' }}>Отправить</button>
+          <button type="submit" disabled={uploading} style={{ padding: '10px 20px', background: '#007bff', color: 'white', border: 'none', borderRadius: '20px', cursor: 'pointer', flexShrink: 0 }}>➤</button>
         </form>
       </div>
     </div>
