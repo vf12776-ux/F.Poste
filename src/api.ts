@@ -1,4 +1,4 @@
-const API_BASE = ''; // На Render и локально API лежит на том же домене
+const API_BASE = '';
 
 export function setToken(token: string) {
   localStorage.setItem('fposte_token', token);
@@ -16,6 +16,9 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
   const token = getToken();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
+    // 🔥 ЗАПРЕЩАЕМ БРАУЗЕРУ КЭШИРОВАТЬ ЗАПРОСЫ
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma': 'no-cache',
     ...(token && { Authorization: `Bearer ${token}` }),
     ...options.headers,
   };
@@ -32,7 +35,6 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
     throw new Error(text || `HTTP ${response.status}`);
   }
   
-  // Если ответ пустой (как при 200 OK без тела), возвращаем null
   if (response.status === 200 && response.headers.get("content-length") === "0") {
     return null;
   }
@@ -51,15 +53,10 @@ export async function getMe() {
   return apiRequest('/api/me');
 }
 
-// Точно совпадает с Go struct { ChannelID string `json:"channelId"` }
 export async function sendMessage(text: string, username: string, channelId?: string) {
   return apiRequest('/api/send', {
     method: 'POST',
-    body: JSON.stringify({ 
-      text, 
-      username, 
-      channelId: channelId || "" 
-    }),
+    body: JSON.stringify({ text, username, channelId: channelId || "" }),
   });
 }
 
@@ -95,7 +92,6 @@ export async function createChannel(name: string) {
   });
 }
 
-// Точно совпадает с Go struct { To string `json:"to"` }
 export async function sendPrivateMessage(to: string, text: string) {
   return apiRequest('/api/private/send', {
     method: 'POST',
@@ -108,7 +104,6 @@ export async function loadPrivateHistory(withUser: string) {
   return Array.isArray(data) ? data : [];
 }
 
-// Обрабатывает формат Go: [{ partner: "...", lastTs: 123 }]
 export async function listPrivateChats() {
   try {
     const data = await apiRequest('/api/private/chats');
@@ -134,5 +129,5 @@ export async function uploadFile(file: File) {
   });
   
   if (!response.ok) throw new Error('Upload error');
-  return response.text(); // Go возвращает просто строку пути
+  return response.text();
 }
