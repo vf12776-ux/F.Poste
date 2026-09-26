@@ -69,7 +69,12 @@ export async function sendMessage(text: string, username: string, channelId?: st
 export async function loadHistory(channelId?: string) {
   const query = channelId ? `?channel=${channelId}` : '';
   const data = await apiRequest('/api/messages' + query);
-  return Array.isArray(data) ? data : [];
+  if (!Array.isArray(data)) return [];
+  return data.map((m: any) => ({
+    ...m,
+    file_url: m.file_url || m.fileUrl || '',
+    file_name: m.file_name || m.fileName || '',
+  }));
 }
 
 export async function deleteMessage(id: string) {
@@ -108,7 +113,12 @@ export async function sendPrivateMessage(to: string, text: string, fileUrl?: str
 
 export async function loadPrivateHistory(withUser: string) {
   const data = await apiRequest(`/api/private/history?with=${withUser}`);
-  return Array.isArray(data) ? data : [];
+  if (!Array.isArray(data)) return [];
+  return data.map((m: any) => ({
+    ...m,
+    file_url: m.file_url || m.fileUrl || '',
+    file_name: m.file_name || m.fileName || '',
+  }));
 }
 
 export async function listPrivateChats() {
