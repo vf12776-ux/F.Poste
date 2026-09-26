@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -160,7 +161,6 @@ func loadHistory(w http.ResponseWriter, r *http.Request) {
 			"timestamp": timestamp,
 		}
 		if fileURL.Valid {
-			msg["isFile"] = true
 			msg["fileUrl"] = fileURL.String
 			msg["fileName"] = fileName.String
 		}
@@ -176,11 +176,14 @@ func loadHistory(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(messages)
 }
 
+// 🔥 ОБНОВЛЕНО: поддержка fileUrl и fileName
 func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text      string `json:"text"`
 		Username  string `json:"username"`
 		ChannelID string `json:"channelId"`
+		FileURL   string `json:"fileUrl"`
+		FileName  string `json:"fileName"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
@@ -194,8 +197,14 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 		channelID = nil
 	}
 
-	_, err := db.Exec(`INSERT INTO messages (username, text, timestamp, channel_id) VALUES ($1, $2, $3, $4)`,
-		req.Username, req.Text, time.Now().Unix(), channelID)
+	var fileURL, fileName interface{}
+	if req.FileURL != "" {
+		fileURL = req.FileURL
+		fileName = req.FileName
+	}
+
+	_, err := db.Exec(`INSERT INTO messages (username, text, timestamp, channel_id, file_url, file_name) VALUES ($1, $2, $3, $4, $5, $6)`,
+		req.Username, req.Text, time.Now().Unix(), channelID, fileURL, fileName)
 	if err != nil {
 		http.Error(w, "Failed to send message: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -272,7 +281,6 @@ func clearChannelHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// 🔥 ИСПРАВЛЕНО: удалена неиспользуемая переменная username
 func clearChatHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
@@ -338,11 +346,14 @@ func createChannel(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"id": id, "name": req.Name})
 }
 
+// 🔥 ОБНОВЛЕНО: поддержка fileUrl и fileName
 func sendPrivateMessage(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Username")
 	var req struct {
-		To   string `json:"to"`
-		Text string `json:"text"`
+		To       string `json:"to"`
+		Text     string `json:"text"`
+		FileURL  string `json:"fileUrl"`
+		FileName string `json:"fileName"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
@@ -353,13 +364,19 @@ func sendPrivateMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid recipient", http.StatusBadRequest)
 		return
 	}
-	if strings.TrimSpace(req.Text) == "" {
+	if strings.TrimSpace(req.Text) == "" && req.FileURL == "" {
 		http.Error(w, "Empty message", http.StatusBadRequest)
 		return
 	}
 
-	_, err := db.Exec(`INSERT INTO private_messages (from_username, to_username, text, timestamp) VALUES ($1, $2, $3, $4)`,
-		username, req.To, req.Text, time.Now().Unix())
+	var fileURL, fileName interface{}
+	if req.FileURL != "" {
+		fileURL = req.FileURL
+		fileName = req.FileName
+	}
+
+	_, err := db.Exec(`INSERT INTO private_messages (from_username, to_username, text, timestamp, file_url, file_name) VALUES ($1, $2, $3, $4, $5, $6)`,
+		username, req.To, req.Text, time.Now().Unix(), fileURL, fileName)
 	if err != nil {
 		http.Error(w, "Failed to send: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -404,7 +421,6 @@ func loadPrivateHistory(w http.ResponseWriter, r *http.Request) {
 			"timestamp": timestamp,
 		}
 		if fileURL.Valid {
-			msg["isFile"] = true
 			msg["fileUrl"] = fileURL.String
 			msg["fileName"] = fileName.String
 		}
@@ -523,8 +539,9 @@ func listPrivateChats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(chats)
 }
 
+// 🔥 ОБНОВЛЕНО: уникальные имена файлов
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	if err := r.ParseMultipartForm(25 << 20); err != nil { // 25 MB
 		http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
 		return
 	}
@@ -535,7 +552,10 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	dst, err := os.Create(fmt.Sprintf("./uploads/%s", header.Filename))
+	// Генерируем уникальное имя: timestamp_оригинальное_имя
+	ext := filepath.Ext(header.Filename)
+	uniqueName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), header.Filename)
+	dst, err := os.Create(fmt.Sprintf("./uploads/%s", uniqueName))
 	if err != nil {
 		http.Error(w, "Save failed", http.StatusInternalServerError)
 		return
@@ -546,18 +566,13 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Copy failed", http.StatusInternalServerError)
 		return
 	}
-	w.Write([]byte(fmt.Sprintf("/uploads/%s", header.Filename)))
-}
-
-func fileHandler(w http.ResponseWriter, r *http.Request) {
-	id := strings.TrimPrefix(r.URL.Path, "/api/file/")
-	var fileURL, fileName sql.NullString
-	err := db.QueryRow("SELECT file_url, file_name FROM messages WHERE id = $1", id).Scan(&fileURL, &fileName)
-	if err != nil || !fileURL.Valid {
-		http.NotFound(w, r)
-		return
-	}
-	http.ServeFile(w, r, "."+fileURL.String)
+	
+	// Возвращаем JSON с путем и именем файла
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"url":  fmt.Sprintf("/uploads/%s", uniqueName),
+		"name": header.Filename,
+	})
 }
 
 func subscribeHandler(w http.ResponseWriter, r *http.Request) {
@@ -586,8 +601,11 @@ func main() {
 	http.HandleFunc("/api/private/clear", requireAuth(clearPrivateChatHandler))
 	http.HandleFunc("/api/private/history", requireAuth(loadPrivateHistory))
 	http.HandleFunc("/api/private/chats", requireAuth(listPrivateChats))
-	http.HandleFunc("/upload", uploadHandler)
-	http.HandleFunc("/api/file/", fileHandler)
+	http.HandleFunc("/upload", requireAuth(uploadHandler))
+	
+	// 🔥 НОВОЕ: раздача файлов из папки uploads
+	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
+	
 	http.HandleFunc("/api/vapid-public-key", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(vapidPublicKey))
 	})
