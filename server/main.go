@@ -418,9 +418,9 @@ func loadPrivateHistory(w http.ResponseWriter, r *http.Request) {
 			"timestamp": timestamp,
 		}
 		if fileURL.Valid {
-			msg["fileUrl"] = fileURL.String
-			msg["fileName"] = fileName.String
-		}
+    msg["file_url"] = fileURL.String
+    msg["file_name"] = fileName.String
+}
 		if editedAt.Valid {
 			msg["edited"] = true
 		}
