@@ -1,4 +1,4 @@
-const API_BASE = '';
+const API_BASE = ''; // На Render и локально API лежит на том же домене
 
 export function setToken(token: string) {
   localStorage.setItem('fposte_token', token);
@@ -22,15 +22,19 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
 
   const response = await fetch(API_BASE + endpoint, { ...options, headers });
   
-  // Логируем статус для отладки
   if (!response.ok) {
-    const errText = await response.text();
-    console.error(`API Error at ${endpoint}:`, response.status, errText);
+    const text = await response.text();
+    console.error(`API Error ${endpoint}:`, response.status, text);
     if (response.status === 401) {
       clearToken();
       window.location.reload();
     }
-    throw new Error(`API error: ${response.status}`);
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+  
+  // Если ответ пустой (как при 200 OK без тела), возвращаем null
+  if (response.status === 200 && response.headers.get("content-length") === "0") {
+    return null;
   }
   
   return response.json();
@@ -39,7 +43,7 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
 export async function login(username: string, displayName: string) {
   return apiRequest('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username, display_name: displayName }), // Пробуем оба варианта
+    body: JSON.stringify({ username, displayName }),
   });
 }
 
@@ -47,15 +51,14 @@ export async function getMe() {
   return apiRequest('/api/me');
 }
 
-// ИСПРАВЛЕНО: Отправляем и channelId, и channel_id для совместимости
+// Точно совпадает с Go struct { ChannelID string `json:"channelId"` }
 export async function sendMessage(text: string, username: string, channelId?: string) {
   return apiRequest('/api/send', {
     method: 'POST',
     body: JSON.stringify({ 
       text, 
       username, 
-      channelId, 
-      channel_id: channelId 
+      channelId: channelId || "" 
     }),
   });
 }
@@ -92,10 +95,11 @@ export async function createChannel(name: string) {
   });
 }
 
+// Точно совпадает с Go struct { To string `json:"to"` }
 export async function sendPrivateMessage(to: string, text: string) {
   return apiRequest('/api/private/send', {
     method: 'POST',
-    body: JSON.stringify({ to, text, to_username: to }), // Дублируем для надежности
+    body: JSON.stringify({ to, text }),
   });
 }
 
@@ -104,19 +108,17 @@ export async function loadPrivateHistory(withUser: string) {
   return Array.isArray(data) ? data : [];
 }
 
+// Обрабатывает формат Go: [{ partner: "...", lastTs: 123 }]
 export async function listPrivateChats() {
   try {
     const data = await apiRequest('/api/private/chats');
     if (Array.isArray(data)) {
-      return data.map((item: any) => {
-        if (typeof item === 'string') return item;
-        return item.partner || item.username || item.to_username || item.from_username || 'Unknown';
-      });
+      return data.map((item: any) => item.partner || item.username || 'Unknown');
     }
     return [];
   } catch (e) {
-    console.error("Failed to load private chats", e);
-    return []; // Возвращаем пустой массив вместо падения
+    console.error("Error loading private chats", e);
+    return [];
   }
 }
 
@@ -132,5 +134,5 @@ export async function uploadFile(file: File) {
   });
   
   if (!response.ok) throw new Error('Upload error');
-  return response.json();
+  return response.text(); // Go возвращает просто строку пути
 }
