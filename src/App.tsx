@@ -8,7 +8,15 @@ import {
 // --- Типы данных ---
 interface User { username: string; display_name?: string }
 interface Channel { id: string; name: string }
-interface Message { id: string; username: string; text: string; file_url?: string; file_name?: string; timestamp: number; channel_id?: string }
+interface Message { 
+  id: string; 
+  username: string; 
+  text: string; 
+  file_url?: string; 
+  file_name?: string; 
+  timestamp: number; 
+  channel_id?: string 
+}
 
 export default function App() {
   // --- Состояния ---
@@ -53,31 +61,21 @@ export default function App() {
     setIsLoading(false);
   };
 
-    const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (usernameInput.trim().length < 5) return alert('Минимум 5 символов');
+    
     setIsLoading(true);
     try {
       // Используем функцию из api.ts
       const data = await login(usernameInput.trim(), usernameInput.trim());
       if (data.token) {
-        setToken(data.token); // Правильно сохраняем токен
+        setToken(data.token); // Правильно сохраняем токен через api.ts
         setUser({ username: data.username || usernameInput.trim(), display_name: data.displayName });
         await loadInitialData();
       }
     } catch (err) {
       alert('Ошибка входа: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'));
-    }
-    setIsLoading(false);
-  };
-      const data = await response.json();
-      if (data.token) {
-        localStorage.setItem('token', data.token);
-        setUser({ username: data.username });
-        await loadInitialData();
-      }
-    } catch (err) {
-      alert('Ошибка входа');
     }
     setIsLoading(false);
   };
@@ -94,11 +92,14 @@ export default function App() {
     try {
       const chs = await listChannels();
       setChannels(chs);
+      
+      // Если каналов нет, ждем. Если есть и ничего не выбрано - выбираем general
       if (chs.length > 0 && !activeChannelId && !activePrivateChat) {
         const general = chs.find((c: Channel) => c.name === 'general') || chs[0];
         setActiveChannelId(general.id);
         await loadChannelMessages(general.id);
       }
+      
       const pChats = await listPrivateChats();
       setPrivateChats(pChats);
     } catch (err) {
@@ -143,8 +144,8 @@ export default function App() {
     }
   };
 
-  // --- Отправка сообщений (Приоритет №2: Оптимистичное обновление) ---
-   const handleSendMessage = async (e: React.FormEvent) => {
+  // --- Отправка сообщений (Оптимистичное обновление) ---
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault(); // Критично: предотвращает перезагрузку страницы
     if (!inputText.trim() || !user) return;
 
@@ -163,12 +164,12 @@ export default function App() {
       // 1. Оптимистично добавляем в UI
       setChannelMessages(prev => [...prev, newMessage]);
       try {
-        // ИСПРАВЛЕНО: порядок аргументов как в api.ts (text, username, channelId)
+        // Порядок аргументов: text, username, channelId
         await sendMessage(textToSend, user.username, activeChannelId);
       } catch (err) {
         alert('Ошибка отправки');
         setChannelMessages(prev => prev.filter(m => m.id !== tempId)); // Откат при ошибке
-        setInputText(textToSend); // Возвращаем текст в поле
+        setInputText(textToSend); // Возвращаем текст
       }
     } else if (activePrivateChat) {
       // 1. Оптимистично добавляем в UI
@@ -185,38 +186,6 @@ export default function App() {
           [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== tempId)
         }));
         setInputText(textToSend);
-      }
-    }
-  };
-
-    const textToSend = inputText.trim();
-    setInputText(''); // Очищаем поле сразу
-
-    if (activeChannelId) {
-      // 1. Оптимистично добавляем в UI
-      setChannelMessages(prev => [...prev, newMessage]);
-      try {
-        await sendMessage(activeChannelId, textToSend);
-        // После успеха можно перезагрузить историю для синхронизации ID, 
-        // но для скорости оставляем оптимистичное сообщение (сервер должен вернуть тот же текст)
-      } catch (err) {
-        alert('Ошибка отправки');
-        setChannelMessages(prev => prev.filter(m => m.id !== tempId)); // Откат при ошибке
-      }
-    } else if (activePrivateChat) {
-      // 1. Оптимистично добавляем в UI
-      setPrivateMessages(prev => ({
-        ...prev,
-        [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
-      }));
-      try {
-        await sendPrivateMessage(activePrivateChat, textToSend);
-      } catch (err) {
-        alert('Ошибка отправки ЛС');
-        setPrivateMessages(prev => ({
-          ...prev,
-          [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== tempId)
-        }));
       }
     }
   };
@@ -255,7 +224,7 @@ export default function App() {
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
         style={{ position: 'fixed', top: '10px', left: '10px', zIndex: 100, padding: '8px', display: 'none' }}
-        className="mobile-menu-btn" // Добавьте в CSS: @media (max-width: 768px) { .mobile-menu-btn { display: block !important; } }
+        className="mobile-menu-btn"
       >
         ☰
       </button>
@@ -275,7 +244,6 @@ export default function App() {
         transform: isSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
         transition: 'transform 0.3s ease',
       }} className="sidebar-desktop"> 
-      {/* Добавьте в CSS: @media (min-width: 769px) { .sidebar-desktop { position: relative !important; transform: none !important; } } */}
 
         <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Привет, <b>{user.username}</b></span>
@@ -319,7 +287,7 @@ export default function App() {
             ))}
           </ul>
           
-          {/* Простая форма начала нового ЛС */}
+          {/* Форма начала нового ЛС */}
           <form onSubmit={(e) => {
             e.preventDefault();
             const target = (e.target as any).newChatUser.value.trim();
@@ -362,7 +330,7 @@ export default function App() {
               borderRadius: '12px',
               maxWidth: '70%'
             }}>
-              {msg.username !== user.username && <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '2px' }}>{msg.username}</div>}
+              {msg.username !== user.username && <div style={{ fontSize: '0.75rem', color: '666', marginBottom: '2px' }}>{msg.username}</div>}
               <div>{msg.text}</div>
               {msg.file_url && (
                 <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
@@ -392,7 +360,7 @@ export default function App() {
         </form>
       </div>
 
-      {/* Глобальные стили для адаптивности (в идеале вынести в index.css) */}
+      {/* Глобальные стили для адаптивности */}
       <style>{`
         @media (min-width: 769px) {
           .sidebar-desktop { position: relative !important; transform: none !important; }
