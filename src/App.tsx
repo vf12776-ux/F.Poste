@@ -25,6 +25,7 @@ export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [channelMessages, setChannelMessages] = useState<Message[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false); // 🔥 Новый индикатор
 
   const [privateChats, setPrivateChats] = useState<string[]>([]);
   const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
@@ -84,11 +85,11 @@ export default function App() {
   };
 
   const loadInitialData = async () => {
+    setIsHistoryLoading(true);
     try {
       const chs = await listChannels();
       setChannels(chs);
       
-      // Автоматически выбираем general, если ничего не выбрано
       if (chs.length > 0 && !activeChannelId && !activePrivateChat) {
         const general = chs.find((c: Channel) => c.name === 'general') || chs[0];
         setActiveChannelId(general.id);
@@ -100,20 +101,31 @@ export default function App() {
       const pChats = await listPrivateChats();
       setPrivateChats(pChats);
     } catch (e) { console.error("Failed to load private chats", e); }
+    setIsHistoryLoading(false);
   };
 
   const loadChannelMessages = async (channelId: string) => {
+    setIsHistoryLoading(true);
     try {
       const msgs = await loadHistory(channelId);
       setChannelMessages(msgs);
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+      setSendError("Не удалось загрузить историю");
+    }
+    setIsHistoryLoading(false);
   };
 
   const loadPrivateMessages = async (targetUsername: string) => {
+    setIsHistoryLoading(true);
     try {
       const msgs = await loadPrivateHistory(targetUsername);
       setPrivateMessages(prev => ({ ...prev, [targetUsername]: msgs }));
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+      console.error(err); 
+      setSendError("Не удалось загрузить историю ЛС");
+    }
+    setIsHistoryLoading(false);
   };
 
   const selectChannel = async (channelId: string) => {
@@ -145,7 +157,7 @@ export default function App() {
       id: tempId,
       username: user.username,
       text: inputText.trim(),
-      timestamp: Date.now(),
+      timestamp: Math.floor(Date.now() / 1000), // 🔥 Исправлено: Go ожидает секунды, а не миллисекунды!
     };
 
     const textToSend = inputText.trim();
@@ -153,7 +165,6 @@ export default function App() {
     setSendError(null);
 
     if (activeChannelId) {
-      // Оптимистичное обновление
       setChannelMessages(prev => [...prev, newMessage]);
       try {
         await sendMessage(textToSend, user.username, activeChannelId);
@@ -169,7 +180,6 @@ export default function App() {
       }));
       try {
         await sendPrivateMessage(activePrivateChat, textToSend);
-        // Добавляем новый чат в список, если его там нет
         if (!privateChats.includes(activePrivateChat)) {
           setPrivateChats(prev => [...prev, activePrivateChat]);
         }
@@ -212,7 +222,6 @@ export default function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden' }}>
       
-      {/* Мобильная кнопка */}
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
         style={{ position: 'fixed', top: '10px', left: '10px', zIndex: 100, padding: '8px', display: 'none' }}
@@ -221,7 +230,6 @@ export default function App() {
         ☰
       </button>
 
-      {/* Сайдбар */}
       <div style={{
         width: '280px',
         borderRight: '1px solid #ddd',
@@ -294,7 +302,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Затемнение для мобильного меню */}
       {isSidebarOpen && (
         <div 
           onClick={() => setIsSidebarOpen(false)}
@@ -303,7 +310,6 @@ export default function App() {
         />
       )}
 
-      {/* Основная область */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
         <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
           <div>
@@ -313,27 +319,32 @@ export default function App() {
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {currentMessages.length === 0 && <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>}
-          {currentMessages.map(msg => (
-            <div key={msg.id} style={{ 
-              alignSelf: msg.username === user.username ? 'flex-end' : 'flex-start',
-              backgroundColor: msg.username === user.username ? '#d1fae5' : '#f3f4f6',
-              padding: '0.5rem 1rem',
-              borderRadius: '12px',
-              maxWidth: '70%'
-            }}>
-              {msg.username !== user.username && <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '2px' }}>{msg.username}</div>}
-              <div>{msg.text}</div>
-              {msg.file_url && (
-                <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
-                  📎 {msg.file_name || 'Файл'}
-                </a>
-              )}
-              <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px' }}>
-                {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {isHistoryLoading ? (
+            <div style={{ textAlign: 'center', color: '#888', marginTop: '2rem' }}>Загрузка истории...</div>
+          ) : currentMessages.length === 0 ? (
+            <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
+          ) : (
+            currentMessages.map(msg => (
+              <div key={msg.id} style={{ 
+                alignSelf: msg.username === user.username ? 'flex-end' : 'flex-start',
+                backgroundColor: msg.username === user.username ? '#d1fae5' : '#f3f4f6',
+                padding: '0.5rem 1rem',
+                borderRadius: '12px',
+                maxWidth: '70%'
+              }}>
+                {msg.username !== user.username && <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '2px' }}>{msg.username}</div>}
+                <div>{msg.text}</div>
+                {msg.file_url && (
+                  <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
+                    📎 {msg.file_name || 'Файл'}
+                  </a>
+                )}
+                <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px' }}>
+                  {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
           <div ref={messagesEndRef} />
         </div>
 
@@ -345,7 +356,7 @@ export default function App() {
             placeholder={activePrivateChat ? `Сообщение для ${activePrivateChat}...` : "Введите сообщение..."}
             style={{ flex: 1, padding: '0.75rem', borderRadius: '20px', border: '1px solid #ccc', outline: 'none' }}
           />
-          <button type="submit" disabled={!inputText.trim()} style={{ padding: '0 1.5rem', borderRadius: '20px', border: 'none', backgroundColor: '#2563eb', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>
+          <button type="submit" disabled={!inputText.trim() || isHistoryLoading} style={{ padding: '0 1.5rem', borderRadius: '20px', border: 'none', backgroundColor: '#2563eb', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>
             ➤
           </button>
         </form>
