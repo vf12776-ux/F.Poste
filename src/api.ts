@@ -16,7 +16,6 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
   const token = getToken();
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    // 🔥 ЗАПРЕЩАЕМ БРАУЗЕРУ КЭШИРОВАТЬ ЗАПРОСЫ
     'Cache-Control': 'no-cache, no-store, must-revalidate',
     'Pragma': 'no-cache',
     ...(token && { Authorization: `Bearer ${token}` }),
@@ -66,10 +65,11 @@ export async function loadHistory(channelId?: string) {
   return Array.isArray(data) ? data : [];
 }
 
-export async function deleteMessage(id: string, username: string) {
+// 🔥 ИСПРАВЛЕНО: теперь только 1 аргумент, так как бэкенд берет username из токена
+export async function deleteMessage(id: string) {
   return apiRequest('/api/delete', {
     method: 'POST',
-    body: JSON.stringify({ id, username }),
+    body: JSON.stringify({ id }),
   });
 }
 
@@ -131,7 +131,8 @@ export async function uploadFile(file: File) {
   if (!response.ok) throw new Error('Upload error');
   return response.text();
 }
-// 🔥 НОВОЕ: Редактирование сообщения в канале
+
+// 🔥 НОВЫЕ ФУНКЦИИ для редактирования и удаления
 export async function editMessage(id: string, text: string) {
   return apiRequest('/api/edit', {
     method: 'POST',
@@ -139,7 +140,6 @@ export async function editMessage(id: string, text: string) {
   });
 }
 
-// 🔥 НОВОЕ: Редактирование личного сообщения
 export async function editPrivateMessage(id: string, text: string) {
   return apiRequest('/api/private/edit', {
     method: 'POST',
@@ -147,7 +147,6 @@ export async function editPrivateMessage(id: string, text: string) {
   });
 }
 
-// 🔥 НОВОЕ: Удаление личного сообщения
 export async function deletePrivateMessage(id: string) {
   return apiRequest('/api/private/delete', {
     method: 'POST',
@@ -155,7 +154,6 @@ export async function deletePrivateMessage(id: string) {
   });
 }
 
-// 🔥 НОВОЕ: Удаление всей переписки с пользователем
 export async function clearPrivateChat(withUser: string) {
   return apiRequest('/api/private/clear', {
     method: 'POST',
@@ -163,11 +161,9 @@ export async function clearPrivateChat(withUser: string) {
   });
 }
 
-// 🔥 НОВОЕ: Удаление всех своих сообщений из канала
 export async function clearChannel(channelId: string) {
   return apiRequest('/api/clear-channel', {
     method: 'POST',
     body: JSON.stringify({ channelId }),
   });
 }
-
