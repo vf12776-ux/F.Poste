@@ -3,7 +3,7 @@ import {
   login, getMe, getToken, setToken, clearToken, 
   listChannels, loadHistory, sendMessage, editMessage, deleteMessage, clearChannel,
   listPrivateChats, loadPrivateHistory, sendPrivateMessage, editPrivateMessage, 
-  deletePrivateMessage, clearPrivateChat
+  deletePrivateMessage, clearPrivateChat, uploadFile
 } from './api';
 
 interface User { username: string; display_name?: string }
@@ -12,10 +12,10 @@ interface Message {
   id: string; 
   username: string; 
   text: string; 
-  file_url?: string; 
-  file_name?: string; 
+  fileUrl?: string; 
+  fileName?: string; 
   timestamp: number; 
-  channel_id?: string;
+  channelId?: string;
   edited?: boolean;
 }
 
@@ -37,10 +37,20 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
-  // 🔥 Состояния для редактирования
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+
+  // 🔥 Состояния для записи голоса
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -164,30 +174,53 @@ export default function App() {
     }
   };
 
+  // 🔥 Отправка сообщения (текст или файл)
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !user) return;
+    if ((!inputText.trim() && !audioBlob) || !user) return;
 
     const tempId = `temp-${Date.now()}`;
+    const textToSend = inputText.trim();
+    
+    let fileUrl = '';
+    let fileName = '';
+
+    // Если есть аудио, загружаем его
+    if (audioBlob) {
+      setIsUploading(true);
+      try {
+        const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+        const uploaded = await uploadFile(audioFile);
+        fileUrl = uploaded.url;
+        fileName = uploaded.name;
+      } catch (err) {
+        alert('Ошибка загрузки аудио');
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
+    }
+
     const newMessage: Message = {
       id: tempId,
       username: user.username,
-      text: inputText.trim(),
+      text: textToSend,
+      fileUrl: fileUrl || undefined,
+      fileName: fileName || undefined,
       timestamp: Math.floor(Date.now() / 1000),
     };
 
-    const textToSend = inputText.trim();
     setInputText('');
     setSendError(null);
+    resetAudioRecording();
 
     if (activeChannelId) {
       setChannelMessages(prev => [...prev, newMessage]);
       try {
-        await sendMessage(textToSend, user.username, activeChannelId);
+        await sendMessage(textToSend, user.username, activeChannelId, fileUrl, fileName);
       } catch (err: any) {
         setSendError("Ошибка: " + err.message);
         setChannelMessages(prev => prev.filter(m => m.id !== tempId));
-        setInputText(textToSend);
       }
     } else if (activePrivateChat) {
       setPrivateMessages(prev => ({
@@ -195,7 +228,7 @@ export default function App() {
         [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
       }));
       try {
-        await sendPrivateMessage(activePrivateChat, textToSend);
+        await sendPrivateMessage(activePrivateChat, textToSend, fileUrl, fileName);
         if (!privateChats.includes(activePrivateChat)) {
           setPrivateChats(prev => [...prev, activePrivateChat]);
         }
@@ -205,12 +238,119 @@ export default function App() {
           ...prev,
           [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== tempId)
         }));
-        setInputText(textToSend);
       }
     }
   };
 
-  // 🔥 Редактирование сообщения
+  // 🔥 Загрузка файла через кнопку 📎
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    setIsUploading(true);
+    try {
+      const uploaded = await uploadFile(file);
+      const tempId = `temp-${Date.now()}`;
+      const newMessage: Message = {
+        id: tempId,
+        username: user.username,
+        text: '',
+        fileUrl: uploaded.url,
+        fileName: uploaded.name,
+        timestamp: Math.floor(Date.now() / 1000),
+      };
+
+      if (activeChannelId) {
+        setChannelMessages(prev => [...prev, newMessage]);
+        await sendMessage('', user.username, activeChannelId, uploaded.url, uploaded.name);
+      } else if (activePrivateChat) {
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
+        }));
+        await sendPrivateMessage(activePrivateChat, '', uploaded.url, uploaded.name);
+        if (!privateChats.includes(activePrivateChat)) {
+          setPrivateChats(prev => [...prev, activePrivateChat]);
+        }
+      }
+    } catch (err: any) {
+      alert('Ошибка загрузки файла: ' + err.message);
+    }
+    setIsUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // 🔥 Запись голоса
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(blob);
+        setAudioPreviewUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      timerRef.current = window.setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+    } catch (err) {
+      alert('Не удалось получить доступ к микрофону');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+    resetAudioRecording();
+  };
+
+  const resetAudioRecording = () => {
+    setAudioBlob(null);
+    if (audioPreviewUrl) {
+      URL.revokeObjectURL(audioPreviewUrl);
+    }
+    setAudioPreviewUrl(null);
+    setRecordingTime(0);
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
   const startEditing = (msg: Message) => {
     setEditingMessageId(msg.id);
     setEditingText(msg.text);
@@ -245,7 +385,6 @@ export default function App() {
     }
   };
 
-  // 🔥 Удаление сообщения
   const handleDeleteMessage = async (msgId: string) => {
     if (!confirm("Удалить это сообщение?")) return;
 
@@ -265,7 +404,6 @@ export default function App() {
     }
   };
 
-  // 🔥 Удаление всей переписки
   const handleClearChat = async () => {
     if (!confirm("Удалить ВСЮ переписку? Это действие нельзя отменить.")) return;
 
@@ -282,6 +420,15 @@ export default function App() {
     } catch (err: any) {
       alert("Ошибка очистки: " + err.message);
     }
+  };
+
+  // 🔥 Определение типа файла для отображения
+  const getFileType = (fileName: string): 'image' | 'audio' | 'video' | 'other' => {
+    const ext = fileName.toLowerCase().split('.').pop() || '';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) return 'image';
+    if (['mp3', 'wav', 'ogg', 'webm', 'm4a', 'aac'].includes(ext)) return 'audio';
+    if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext)) return 'video';
+    return 'other';
   };
 
   if (!user) {
@@ -415,7 +562,6 @@ export default function App() {
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
             {sendError && <div style={{ color: 'red', fontSize: '0.8rem' }}>{sendError}</div>}
-            {/* 🔥 Кнопка очистки чата */}
             <button 
               onClick={handleClearChat}
               style={{ padding: '4px 8px', fontSize: '0.75rem', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}
@@ -483,12 +629,42 @@ export default function App() {
                     </div>
                   ) : (
                     <>
-                      <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>
-                      {msg.file_url && (
-                        <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
-                          📎 {msg.file_name || 'Файл'}
-                        </a>
+                      {msg.text && <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>}
+                      
+                      {/* 🔥 Отображение вложений */}
+                      {msg.fileUrl && msg.fileName && (
+                        <div style={{ marginTop: '8px' }}>
+                          {getFileType(msg.fileName) === 'image' && (
+                            <img 
+                              src={msg.fileUrl} 
+                              alt={msg.fileName}
+                              style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }}
+                              onClick={() => window.open(msg.fileUrl, '_blank')}
+                            />
+                          )}
+                          {getFileType(msg.fileName) === 'audio' && (
+                            <audio controls src={msg.fileUrl} style={{ width: '100%', maxWidth: '300px' }}>
+                              Ваш браузер не поддерживает аудио.
+                            </audio>
+                          )}
+                          {getFileType(msg.fileName) === 'video' && (
+                            <video controls src={msg.fileUrl} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }}>
+                              Ваш браузер не поддерживает видео.
+                            </video>
+                          )}
+                          {getFileType(msg.fileName) === 'other' && (
+                            <a 
+                              href={msg.fileUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: '#e0e7ff', borderRadius: '6px', color: '#2563eb', textDecoration: 'none', fontSize: '0.9rem' }}
+                            >
+                              📎 {msg.fileName}
+                            </a>
+                          )}
+                        </div>
                       )}
+                      
                       <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>
                           {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -496,9 +672,11 @@ export default function App() {
                         </span>
                         {isOwn && (
                           <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
-                            <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }} title="Редактировать">
-                              ✏️
-                            </button>
+                            {!msg.fileUrl && (
+                              <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }} title="Редактировать">
+                                ✏️
+                              </button>
+                            )}
                             <button onClick={() => handleDeleteMessage(msg.id)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: '#991b1b' }} title="Удалить">
                               🗑️
                             </button>
@@ -514,21 +692,93 @@ export default function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        <form onSubmit={handleSendMessage} style={{ padding: '1rem', borderTop: '1px solid #ddd', display: 'flex', gap: '0.5rem' }}>
+        {/* 🔥 Панель записи голоса */}
+        {(isRecording || audioBlob) && (
+          <div style={{ padding: '1rem', borderTop: '1px solid #ddd', backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {isRecording ? (
+              <>
+                <div style={{ width: '12px', height: '12px', backgroundColor: '#ef4444', borderRadius: '50%', animation: 'pulse 1s infinite' }} />
+                <span style={{ fontWeight: 'bold' }}>{formatTime(recordingTime)}</span>
+                <button onClick={cancelRecording} style={{ padding: '6px 12px', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}>
+                  ❌ Отмена
+                </button>
+                <button onClick={stopRecording} style={{ padding: '6px 12px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                  ⏹️ Стоп
+                </button>
+              </>
+            ) : audioBlob && (
+              <>
+                <audio controls src={audioPreviewUrl || ''} style={{ flex: 1, maxWidth: '300px' }}>
+                  Ваш браузер не поддерживает аудио.
+                </audio>
+                <button onClick={resetAudioRecording} style={{ padding: '6px 12px', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}>
+                  ❌
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        <form onSubmit={handleSendMessage} style={{ padding: '1rem', borderTop: '1px solid #ddd', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {/* 🔥 Кнопка загрузки файла */}
+          <input 
+            type="file" 
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
+          />
+          <button 
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            style={{ padding: '0.5rem', fontSize: '1.2rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' }}
+            title="Прикрепить файл"
+          >
+            📎
+          </button>
+          
+          {/* 🔥 Кнопка записи голоса */}
+          <button 
+            type="button"
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={isUploading}
+            style={{ 
+              padding: '0.5rem', 
+              fontSize: '1.2rem', 
+              backgroundColor: isRecording ? '#fee2e2' : 'transparent', 
+              border: 'none', 
+              cursor: 'pointer',
+              borderRadius: '50%'
+            }}
+            title={isRecording ? 'Остановить запись' : 'Записать голосовое сообщение'}
+          >
+            {isRecording ? '⏹️' : '🎤'}
+          </button>
+
           <input
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder={activePrivateChat ? `Сообщение для ${activePrivateChat}...` : "Введите сообщение..."}
             style={{ flex: 1, padding: '0.75rem', borderRadius: '20px', border: '1px solid #ccc', outline: 'none' }}
+            disabled={isUploading}
           />
-          <button type="submit" disabled={!inputText.trim() || isHistoryLoading} style={{ padding: '0 1.5rem', borderRadius: '20px', border: 'none', backgroundColor: '#2563eb', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>
-            ➤
+          <button 
+            type="submit" 
+            disabled={(!inputText.trim() && !audioBlob) || isUploading} 
+            style={{ padding: '0 1.5rem', borderRadius: '20px', border: 'none', backgroundColor: '#2563eb', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            {isUploading ? '⏳' : '➤'}
           </button>
         </form>
       </div>
 
       <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
         @media (min-width: 769px) {
           .sidebar-desktop { position: relative !important; transform: none !important; }
           .mobile-menu-btn { display: none !important; }
