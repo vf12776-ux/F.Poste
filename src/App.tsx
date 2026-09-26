@@ -21,11 +21,12 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [usernameInput, setUsernameInput] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [initError, setInitError] = useState<string | null>(null); // 🔥 Видимая ошибка инициализации
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [channelMessages, setChannelMessages] = useState<Message[]>([]);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(false); // 🔥 Новый индикатор
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   const [privateChats, setPrivateChats] = useState<string[]>([]);
   const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
@@ -62,6 +63,7 @@ export default function App() {
     e.preventDefault();
     if (usernameInput.trim().length < 5) return alert('Минимум 5 символов');
     setIsLoading(true);
+    setInitError(null);
     setSendError(null);
     try {
       const data = await login(usernameInput.trim(), usernameInput.trim());
@@ -86,6 +88,7 @@ export default function App() {
 
   const loadInitialData = async () => {
     setIsHistoryLoading(true);
+    setInitError(null);
     try {
       const chs = await listChannels();
       setChannels(chs);
@@ -95,12 +98,18 @@ export default function App() {
         setActiveChannelId(general.id);
         await loadChannelMessages(general.id);
       }
-    } catch (e) { console.error("Failed to load channels", e); }
+    } catch (e) { 
+      console.error("Failed to load channels", e); 
+      setInitError("Не удалось загрузить каналы. Проверьте интернет.");
+    }
 
     try {
       const pChats = await listPrivateChats();
       setPrivateChats(pChats);
-    } catch (e) { console.error("Failed to load private chats", e); }
+    } catch (e) { 
+      console.error("Failed to load private chats", e); 
+      // Не прерываем работу, если не загрузились только личные чаты
+    }
     setIsHistoryLoading(false);
   };
 
@@ -157,7 +166,7 @@ export default function App() {
       id: tempId,
       username: user.username,
       text: inputText.trim(),
-      timestamp: Math.floor(Date.now() / 1000), // 🔥 Исправлено: Go ожидает секунды, а не миллисекунды!
+      timestamp: Math.floor(Date.now() / 1000),
     };
 
     const textToSend = inputText.trim();
@@ -169,7 +178,7 @@ export default function App() {
       try {
         await sendMessage(textToSend, user.username, activeChannelId);
       } catch (err: any) {
-        setSendError("Ошибка отправки: " + err.message);
+        setSendError("Ошибка: " + err.message);
         setChannelMessages(prev => prev.filter(m => m.id !== tempId));
         setInputText(textToSend);
       }
@@ -196,18 +205,18 @@ export default function App() {
 
   if (!user) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif' }}>
-        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem', border: '1px solid #ccc', borderRadius: '8px' }}>
-          <h2>Вход в F.Poste</h2>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', padding: '20px' }}>
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem', border: '1px solid #ccc', borderRadius: '8px', width: '100%', maxWidth: '300px' }}>
+          <h2 style={{ textAlign: 'center' }}>Вход в F.Poste</h2>
           <input
             type="text"
-            placeholder="Введите ник (мин. 5 символов)"
+            placeholder="Ник (мин. 5 символов)"
             value={usernameInput}
             onChange={(e) => setUsernameInput(e.target.value)}
-            style={{ padding: '0.5rem', fontSize: '1rem' }}
+            style={{ padding: '0.75rem', fontSize: '1rem', borderRadius: '4px', border: '1px solid #ccc' }}
             disabled={isLoading}
           />
-          <button type="submit" disabled={isLoading} style={{ padding: '0.5rem', fontSize: '1rem', cursor: 'pointer' }}>
+          <button type="submit" disabled={isLoading} style={{ padding: '0.75rem', fontSize: '1rem', cursor: 'pointer', borderRadius: '4px', backgroundColor: '#2563eb', color: 'white', border: 'none' }}>
             {isLoading ? 'Вход...' : 'Войти'}
           </button>
         </form>
@@ -222,12 +231,13 @@ export default function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden' }}>
       
+      {/* 🔥 Кнопка меню теперь с текстом для ясности на телефоне */}
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        style={{ position: 'fixed', top: '10px', left: '10px', zIndex: 100, padding: '8px', display: 'none' }}
+        style={{ position: 'fixed', top: '10px', left: '10px', zIndex: 100, padding: '8px 12px', display: 'none', backgroundColor: 'white', border: '1px solid #ccc', borderRadius: '4px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
         className="mobile-menu-btn"
       >
-        ☰
+        ☰ Меню
       </button>
 
       <div style={{
@@ -247,21 +257,22 @@ export default function App() {
 
         <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Привет, <b>{user.username}</b></span>
-          <button onClick={handleLogout} style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'red' }}>Выйти</button>
+          <button onClick={handleLogout} style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'red', fontSize: '0.9rem' }}>Выйти</button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
-          <h3 style={{ marginTop: 0 }}>Каналы</h3>
-          <ul style={{ listStyle: 'none', padding: 0 }}>
+          <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Каналы</h3>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
             {channels.map(ch => (
               <li 
                 key={ch.id} 
                 onClick={() => selectChannel(ch.id)}
                 style={{ 
-                  padding: '8px', 
+                  padding: '10px', 
                   cursor: 'pointer', 
                   borderRadius: '4px',
-                  backgroundColor: activeChannelId === ch.id ? '#e0e7ff' : 'transparent'
+                  backgroundColor: activeChannelId === ch.id ? '#e0e7ff' : 'transparent',
+                  marginBottom: '4px'
                 }}
               >
                 # {ch.name}
@@ -269,23 +280,28 @@ export default function App() {
             ))}
           </ul>
 
-          <h3>Личные чаты</h3>
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {privateChats.map(username => (
-              <li 
-                key={username} 
-                onClick={() => selectPrivateChat(username)}
-                style={{ 
-                  padding: '8px', 
-                  cursor: 'pointer', 
-                  borderRadius: '4px',
-                  backgroundColor: activePrivateChat === username ? '#e0e7ff' : 'transparent'
-                }}
-              >
-                👤 {username}
-              </li>
-            ))}
-          </ul>
+          <h3 style={{ marginTop: '1.5rem', fontSize: '1rem' }}>Личные чаты</h3>
+          {privateChats.length === 0 ? (
+            <div style={{ color: '#888', fontSize: '0.9rem', padding: '10px' }}>Нет личных чатов</div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {privateChats.map(username => (
+                <li 
+                  key={username} 
+                  onClick={() => selectPrivateChat(username)}
+                  style={{ 
+                    padding: '10px', 
+                    cursor: 'pointer', 
+                    borderRadius: '4px',
+                    backgroundColor: activePrivateChat === username ? '#e0e7ff' : 'transparent',
+                    marginBottom: '4px'
+                  }}
+                >
+                  👤 {username}
+                </li>
+              ))}
+            </ul>
+          )}
           
           <form onSubmit={(e) => {
             e.preventDefault();
@@ -296,8 +312,8 @@ export default function App() {
               (e.target as any).newChatUser.value = '';
             }
           }} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
-            <input name="newChatUser" placeholder="Ник для ЛС" style={{ flex: 1, padding: '4px' }} />
-            <button type="submit" style={{ cursor: 'pointer' }}>OK</button>
+            <input name="newChatUser" placeholder="Ник для ЛС" style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
+            <button type="submit" style={{ cursor: 'pointer', padding: '0 12px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white' }}>OK</button>
           </form>
         </div>
       </div>
@@ -311,12 +327,19 @@ export default function App() {
       )}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
-        <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between' }}>
+        <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
           </div>
           {sendError && <div style={{ color: 'red', fontSize: '0.8rem' }}>{sendError}</div>}
         </div>
+
+        {/* 🔥 Видимое сообщение об ошибке инициализации */}
+        {initError && (
+          <div style={{ padding: '1rem', backgroundColor: '#fee2e2', color: '#991b1b', textAlign: 'center', borderBottom: '1px solid #fca5a5' }}>
+            {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer' }}>Повторить</button>
+          </div>
+        )}
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {isHistoryLoading ? (
@@ -330,10 +353,10 @@ export default function App() {
                 backgroundColor: msg.username === user.username ? '#d1fae5' : '#f3f4f6',
                 padding: '0.5rem 1rem',
                 borderRadius: '12px',
-                maxWidth: '70%'
+                maxWidth: '80%'
               }}>
                 {msg.username !== user.username && <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '2px' }}>{msg.username}</div>}
-                <div>{msg.text}</div>
+                <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>
                 {msg.file_url && (
                   <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
                     📎 {msg.file_name || 'Файл'}
@@ -370,7 +393,8 @@ export default function App() {
           .main-area { margin-left: 0 !important; }
         }
         @media (max-width: 768px) {
-          .sidebar-desktop { width: 80% !important; max-width: 300px !important; box-shadow: 2px 0 8px rgba(0,0,0,0.1); }
+          .sidebar-desktop { width: 85% !important; max-width: 320px !important; box-shadow: 2px 0 8px rgba(0,0,0,0.2); }
+          .mobile-menu-btn { display: block !important; }
         }
       `}</style>
     </div>
