@@ -131,3 +131,43 @@ export async function uploadFile(file: File) {
   if (!response.ok) throw new Error('Upload error');
   return response.text();
 }
+// 🔥 НОВОЕ: Редактирование сообщения в канале
+export async function editMessage(id: string, text: string) {
+  return apiRequest('/api/edit', {
+    method: 'POST',
+    body: JSON.stringify({ id, text }),
+  });
+}
+
+// 🔥 НОВОЕ: Редактирование личного сообщения
+export async function editPrivateMessage(id: string, text: string) {
+  return apiRequest('/api/private/edit', {
+    method: 'POST',
+    body: JSON.stringify({ id, text }),
+  });
+}
+
+// 🔥 НОВОЕ: Удаление личного сообщения
+export async function deletePrivateMessage(id: string) {
+  return apiRequest('/api/private/delete', {
+    method: 'POST',
+    body: JSON.stringify({ id }),
+  });
+}
+
+// 🔥 НОВОЕ: Удаление всей переписки с пользователем
+export async function clearPrivateChat(withUser: string) {
+  return apiRequest('/api/private/clear', {
+    method: 'POST',
+    body: JSON.stringify({ withUser }),
+  });
+}
+
+// 🔥 НОВОЕ: Удаление всех своих сообщений из канала
+export async function clearChannel(channelId: string) {
+  return apiRequest('/api/clear-channel', {
+    method: 'POST',
+    body: JSON.stringify({ channelId }),
+  });
+}
+
