@@ -1,5 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { getMe, getToken, clearToken, listChannels, loadHistory, sendMessage, listPrivateChats, loadPrivateHistory, sendPrivateMessage } from './api';
+import { 
+  login, getMe, getToken, setToken, clearToken, 
+  listChannels, loadHistory, sendMessage, 
+  listPrivateChats, loadPrivateHistory, sendPrivateMessage 
+} from './api';
 
 // --- Типы данных ---
 interface User { username: string; display_name?: string }
@@ -49,18 +53,23 @@ export default function App() {
     setIsLoading(false);
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (usernameInput.trim().length < 5) return alert('Минимум 5 символов');
     setIsLoading(true);
     try {
-      // Предполагается, что api.login возвращает токен и данные пользователя
-      // Если ваш api.ts называет это иначе, замените на ваш вызов
-      const response = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: usernameInput.trim() })
-      });
+      // Используем функцию из api.ts
+      const data = await login(usernameInput.trim(), usernameInput.trim());
+      if (data.token) {
+        setToken(data.token); // Правильно сохраняем токен
+        setUser({ username: data.username || usernameInput.trim(), display_name: data.displayName });
+        await loadInitialData();
+      }
+    } catch (err) {
+      alert('Ошибка входа: ' + (err instanceof Error ? err.message : 'Неизвестная ошибка'));
+    }
+    setIsLoading(false);
+  };
       const data = await response.json();
       if (data.token) {
         localStorage.setItem('token', data.token);
@@ -135,8 +144,8 @@ export default function App() {
   };
 
   // --- Отправка сообщений (Приоритет №2: Оптимистичное обновление) ---
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault(); // Критично: предотвращает перезагрузку страницы и сброс в #general
+   const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault(); // Критично: предотвращает перезагрузку страницы
     if (!inputText.trim() || !user) return;
 
     const tempId = `temp-${Date.now()}`;
@@ -146,6 +155,39 @@ export default function App() {
       text: inputText.trim(),
       timestamp: Date.now(),
     };
+
+    const textToSend = inputText.trim();
+    setInputText(''); // Очищаем поле сразу
+
+    if (activeChannelId) {
+      // 1. Оптимистично добавляем в UI
+      setChannelMessages(prev => [...prev, newMessage]);
+      try {
+        // ИСПРАВЛЕНО: порядок аргументов как в api.ts (text, username, channelId)
+        await sendMessage(textToSend, user.username, activeChannelId);
+      } catch (err) {
+        alert('Ошибка отправки');
+        setChannelMessages(prev => prev.filter(m => m.id !== tempId)); // Откат при ошибке
+        setInputText(textToSend); // Возвращаем текст в поле
+      }
+    } else if (activePrivateChat) {
+      // 1. Оптимистично добавляем в UI
+      setPrivateMessages(prev => ({
+        ...prev,
+        [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
+      }));
+      try {
+        await sendPrivateMessage(activePrivateChat, textToSend);
+      } catch (err) {
+        alert('Ошибка отправки ЛС');
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== tempId)
+        }));
+        setInputText(textToSend);
+      }
+    }
+  };
 
     const textToSend = inputText.trim();
     setInputText(''); // Очищаем поле сразу
