@@ -55,7 +55,7 @@ export async function sendMessage(text: string, username: string, channelId?: st
 export async function loadHistory(channelId?: string) {
   const query = channelId ? `?channel=${channelId}` : '';
   const data = await apiRequest('/api/messages' + query);
-  return Array.isArray(data) ? data : []; // ЗАЩИТА
+  return Array.isArray(data) ? data : [];
 }
 
 export async function deleteMessage(id: string, username: string) {
@@ -74,7 +74,7 @@ export async function clearChat(username: string) {
 
 export async function listChannels() {
   const data = await apiRequest('/api/channels');
-  return Array.isArray(data) ? data : []; // ЗАЩИТА: гарантируем массив
+  return Array.isArray(data) ? data : [];
 }
 
 export async function createChannel(name: string) {
@@ -93,12 +93,20 @@ export async function sendPrivateMessage(to: string, text: string) {
 
 export async function loadPrivateHistory(withUser: string) {
   const data = await apiRequest(`/api/private/history?with=${withUser}`);
-  return Array.isArray(data) ? data : []; // ЗАЩИТА
+  return Array.isArray(data) ? data : [];
 }
 
+// 🔥 ИСПРАВЛЕНИЕ: Распаковываем объект { partner, lastTs } в простую строку
 export async function listPrivateChats() {
   const data = await apiRequest('/api/private/chats');
-  return Array.isArray(data) ? data : []; // ЗАЩИТА: гарантируем массив
+  if (Array.isArray(data)) {
+    return data.map((item: any) => {
+      if (typeof item === 'string') return item; // Если уже строка, оставляем
+      // Если объект, извлекаем имя партнера (поддерживаем разные варианты имен ключей)
+      return item.partner || item.username || item.to_username || item.from_username || 'Unknown';
+    });
+  }
+  return [];
 }
 
 export async function uploadFile(file: File) {
