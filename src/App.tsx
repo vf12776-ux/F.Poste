@@ -186,16 +186,16 @@ export default function App() {
 
     const tempId = `temp-${Date.now()}`;
     const textToSend = inputText.trim();
-    let fileUrl = '';
-    let fileName = '';
+    let file_url = '';
+    let file_name = '';
 
     if (audioBlob) {
       setIsUploading(true);
       try {
         const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
         const uploaded = await uploadFile(audioFile);
-        fileUrl = uploaded.url;
-        fileName = uploaded.name;
+        file_url = uploaded.url;
+        file_name = uploaded.name;
       } catch (err) {
         alert('Ошибка загрузки аудио');
         setIsUploading(false);
@@ -208,8 +208,8 @@ export default function App() {
       id: tempId,
       username: user.username,
       text: textToSend,
-      fileUrl: fileUrl || undefined,
-      fileName: fileName || undefined,
+      file_url: file_url || undefined,
+      file_name: file_name || undefined,
       timestamp: Math.floor(Date.now() / 1000),
     };
 
@@ -220,7 +220,7 @@ export default function App() {
     if (activeChannelId) {
       setChannelMessages(prev => [...prev, newMessage]);
       try {
-        await sendMessage(textToSend, user.username, activeChannelId, fileUrl, fileName);
+        await sendMessage(textToSend, user.username, activeChannelId, file_url, file_name);
       } catch (err: any) {
         setSendError("Ошибка: " + err.message);
         setChannelMessages(prev => prev.filter(m => m.id !== tempId));
@@ -231,7 +231,7 @@ export default function App() {
         [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
       }));
       try {
-        await sendPrivateMessage(activePrivateChat, textToSend, fileUrl, fileName);
+        await sendPrivateMessage(activePrivateChat, textToSend, file_url, file_name);
         if (!privateChats.includes(activePrivateChat)) {
           setPrivateChats(prev => [...prev, activePrivateChat]);
         }
@@ -257,8 +257,8 @@ export default function App() {
         id: tempId,
         username: user.username,
         text: '',
-        fileUrl: uploaded.url,
-        fileName: uploaded.name,
+        file_url: uploaded.url,
+        file_name: uploaded.name,
         timestamp: Math.floor(Date.now() / 1000),
       };
 
@@ -523,18 +523,18 @@ export default function App() {
                     <>
                       {msg.text && <div style={{ wordBreak: 'break-word', color: 'var(--text-primary)' }}>{msg.text}</div>}
                       {msg.file_url && msg.file_name && (
-  <div style={{ marginTop: '8px' }}>
-    {getFileType(msg.file_name) === 'image' && <img src={msg.file_url} alt={msg.file_name} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => window.open(msg.file_url, '_blank')} />}
-    {getFileType(msg.file_name) === 'audio' && <audio controls src={msg.file_url} style={{ width: '100%', maxWidth: '300px' }} />}
-    {getFileType(msg.file_name) === 'video' && <video controls src={msg.file_url} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />}
-    {getFileType(msg.file_name) === 'other' && <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: 'var(--highlight)', borderRadius: '6px', color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem' }}>📎 {msg.file_name}</a>}
-  </div>
-)}
+                        <div style={{ marginTop: '8px' }}>
+                          {getFileType(msg.file_name) === 'image' && <img src={msg.file_url} alt={msg.file_name} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => window.open(msg.file_url, '_blank')} />}
+                          {getFileType(msg.file_name) === 'audio' && <audio controls src={msg.file_url} style={{ width: '100%', maxWidth: '300px' }} />}
+                          {getFileType(msg.file_name) === 'video' && <video controls src={msg.file_url} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />}
+                          {getFileType(msg.file_name) === 'other' && <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: 'var(--highlight)', borderRadius: '6px', color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem' }}>📎 {msg.file_name}</a>}
+                        </div>
+                      )}
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
                         {isOwn && (
                           <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
-                            {!msg.fileUrl && <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} title="Редактировать">✏️</button>}
+                            {!msg.file_url && <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} title="Редактировать">✏️</button>}
                             <button onClick={() => handleDeleteMessage(msg.id)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--error-text)' }} title="Удалить">🗑️</button>
                           </div>
                         )}
