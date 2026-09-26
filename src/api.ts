@@ -52,10 +52,17 @@ export async function getMe() {
   return apiRequest('/api/me');
 }
 
-export async function sendMessage(text: string, username: string, channelId?: string) {
+// 🔥 ОБНОВЛЕНО: поддержка fileUrl и fileName
+export async function sendMessage(text: string, username: string, channelId?: string, fileUrl?: string, fileName?: string) {
   return apiRequest('/api/send', {
     method: 'POST',
-    body: JSON.stringify({ text, username, channelId: channelId || "" }),
+    body: JSON.stringify({ 
+      text, 
+      username, 
+      channelId: channelId || "",
+      fileUrl: fileUrl || "",
+      fileName: fileName || ""
+    }),
   });
 }
 
@@ -65,7 +72,6 @@ export async function loadHistory(channelId?: string) {
   return Array.isArray(data) ? data : [];
 }
 
-// 🔥 ИСПРАВЛЕНО: теперь только 1 аргумент, так как бэкенд берет username из токена
 export async function deleteMessage(id: string) {
   return apiRequest('/api/delete', {
     method: 'POST',
@@ -92,10 +98,11 @@ export async function createChannel(name: string) {
   });
 }
 
-export async function sendPrivateMessage(to: string, text: string) {
+// 🔥 ОБНОВЛЕНО: поддержка fileUrl и fileName
+export async function sendPrivateMessage(to: string, text: string, fileUrl?: string, fileName?: string) {
   return apiRequest('/api/private/send', {
     method: 'POST',
-    body: JSON.stringify({ to, text }),
+    body: JSON.stringify({ to, text, fileUrl: fileUrl || "", fileName: fileName || "" }),
   });
 }
 
@@ -117,7 +124,8 @@ export async function listPrivateChats() {
   }
 }
 
-export async function uploadFile(file: File) {
+// 🔥 ОБНОВЛЕНО: возвращает объект { url, name }
+export async function uploadFile(file: File): Promise<{ url: string; name: string }> {
   const formData = new FormData();
   formData.append('file', file);
   const token = getToken();
@@ -129,10 +137,9 @@ export async function uploadFile(file: File) {
   });
   
   if (!response.ok) throw new Error('Upload error');
-  return response.text();
+  return response.json();
 }
 
-// 🔥 НОВЫЕ ФУНКЦИИ для редактирования и удаления
 export async function editMessage(id: string, text: string) {
   return apiRequest('/api/edit', {
     method: 'POST',
