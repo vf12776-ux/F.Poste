@@ -12,8 +12,8 @@ interface Message {
   id: string; 
   username: string; 
   text: string; 
-  file_url?: string; 
-  file_name?: string; 
+  fileUrl?: string; 
+  fileName?: string; 
   timestamp: number; 
   channelId?: string;
   edited?: boolean;
@@ -257,8 +257,8 @@ export default function App() {
         id: tempId,
         username: user.username,
         text: '',
-        file_url: uploaded.url,
-        file_name: uploaded.name,
+        fileUrl: uploaded.url,
+        fileName: uploaded.name,
         timestamp: Math.floor(Date.now() / 1000),
       };
 
@@ -522,19 +522,19 @@ export default function App() {
                   ) : (
                     <>
                       {msg.text && <div style={{ wordBreak: 'break-word', color: 'var(--text-primary)' }}>{msg.text}</div>}
-                      {msg.file_url && msg.file_name && (
+                      {msg.fileUrl && msg.fileName && (
                         <div style={{ marginTop: '8px' }}>
-                          {getFileType(msg.file_name) === 'image' && <img src={msg.file_url} alt={msg.file_name} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => window.open(msg.file_url, '_blank')} />}
-                          {getFileType(msg.file_name) === 'audio' && <audio controls src={msg.file_url} style={{ width: '100%', maxWidth: '300px' }} />}
-                          {getFileType(msg.file_name) === 'video' && <video controls src={msg.file_url} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />}
-                          {getFileType(msg.file_name) === 'other' && <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: 'var(--highlight)', borderRadius: '6px', color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem' }}>📎 {msg.file_name}</a>}
-                        </div>
+  {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => window.open(msg.fileUrl, '_blank')} />}
+  {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} style={{ width: '100%', maxWidth: '300px' }} />}
+  {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />}
+  {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: 'var(--highlight)', borderRadius: '6px', color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem' }}>📎 {msg.fileName}</a>}
+</div>
                       )}
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
                         {isOwn && (
                           <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
-                            {!msg.file_url && <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} title="Редактировать">✏️</button>}
+                            {!msg.fileUrl && <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} title="Редактировать">✏️</button>}
                             <button onClick={() => handleDeleteMessage(msg.id)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--error-text)' }} title="Удалить">🗑️</button>
                           </div>
                         )}
