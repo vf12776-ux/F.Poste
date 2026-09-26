@@ -19,7 +19,6 @@ interface Message {
 }
 
 export default function App() {
-  // --- Состояния ---
   const [user, setUser] = useState<User | null>(null);
   const [usernameInput, setUsernameInput] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -37,7 +36,6 @@ export default function App() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // --- Эффекты ---
   useEffect(() => {
     checkAuth();
   }, []);
@@ -46,7 +44,6 @@ export default function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [channelMessages, privateMessages, activeChannelId, activePrivateChat]);
 
-  // --- Логика авторизации ---
   const checkAuth = async () => {
     const token = getToken();
     if (token) {
@@ -86,11 +83,10 @@ export default function App() {
     setPrivateMessages({});
   };
 
-  // --- Загрузка данных ---
   const loadInitialData = async () => {
     try {
       const chs = await listChannels();
-      setChannels(chs || []); // Дополнительная защита
+      setChannels(chs || []);
       
       if ((chs || []).length > 0 && !activeChannelId && !activePrivateChat) {
         const general = (chs || []).find((c: Channel) => c.name === 'general') || (chs || [])[0];
@@ -101,7 +97,7 @@ export default function App() {
       }
       
       const pChats = await listPrivateChats();
-      setPrivateChats(pChats || []); // Дополнительная защита
+      setPrivateChats(pChats || []);
     } catch (err) {
       console.error('Ошибка загрузки данных:', err);
     }
@@ -125,7 +121,6 @@ export default function App() {
     }
   };
 
-  // --- Обработчики переключения ---
   const selectChannel = async (channelId: string) => {
     setActiveChannelId(channelId);
     setActivePrivateChat(null);
@@ -144,7 +139,6 @@ export default function App() {
     }
   };
 
-  // --- Отправка сообщений ---
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || !user) return;
@@ -187,7 +181,6 @@ export default function App() {
     }
   };
 
-  // --- Рендер: Экран входа ---
   if (!user) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif' }}>
@@ -209,10 +202,15 @@ export default function App() {
     );
   }
 
-  // --- Рендер: Основной интерфейс ---
   const currentMessages = activeChannelId 
     ? channelMessages 
     : (activePrivateChat ? (privateMessages[activePrivateChat] || []) : []);
+
+  // 🔥 Вспомогательная функция для гарантированного получения строки из любого формата чата
+  const getChatName = (chat: any): string => {
+    if (typeof chat === 'string') return chat;
+    return chat.partner || chat.username || chat.to_username || chat.from_username || 'Unknown';
+  };
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden' }}>
@@ -248,7 +246,6 @@ export default function App() {
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
           <h3 style={{ marginTop: 0 }}>Каналы</h3>
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {/* ЗАЩИТА: (channels || []) */}
             {(channels || []).map(ch => (
               <li 
                 key={ch.id} 
@@ -267,28 +264,33 @@ export default function App() {
 
           <h3>Личные чаты</h3>
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {/* ЗАЩИТА: (privateChats || []) */}
-            {(privateChats || []).map(username => (
-              <li 
-                key={username} 
-                onClick={() => selectPrivateChat(username)}
-                style={{ 
-                  padding: '8px', 
-                  cursor: 'pointer', 
-                  borderRadius: '4px',
-                  backgroundColor: activePrivateChat === username ? '#e0e7ff' : 'transparent'
-                }}
-              >
-                👤 {username}
-              </li>
-            ))}
+            {/* 🔥 ИСПРАВЛЕНИЕ: Используем getChatName, чтобы никогда не передать объект в React */}
+            {(privateChats || []).map((chat: any) => {
+              const username = getChatName(chat);
+              return (
+                <li 
+                  key={username} 
+                  onClick={() => selectPrivateChat(username)}
+                  style={{ 
+                    padding: '8px', 
+                    cursor: 'pointer', 
+                    borderRadius: '4px',
+                    backgroundColor: activePrivateChat === username ? '#e0e7ff' : 'transparent'
+                  }}
+                >
+                  👤 {username}
+                </li>
+              );
+            })}
           </ul>
           
           <form onSubmit={(e) => {
             e.preventDefault();
             const target = (e.target as any).newChatUser.value.trim();
             if (target && target !== user.username) {
-              if (!(privateChats || []).includes(target)) setPrivateChats(prev => [...(prev || []), target]);
+              if (!(privateChats || []).map(getChatName).includes(target)) {
+                setPrivateChats(prev => [...(prev || []), target]);
+              }
               selectPrivateChat(target);
               (e.target as any).newChatUser.value = '';
             }
@@ -317,7 +319,6 @@ export default function App() {
             <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
           )}
           
-          {/* ЗАЩИТА: (currentMessages || []) */}
           {(currentMessages || []).map(msg => (
             <div key={msg.id} style={{ 
               alignSelf: msg.username === user?.username ? 'flex-end' : 'flex-start',
