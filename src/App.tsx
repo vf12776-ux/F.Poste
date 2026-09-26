@@ -42,7 +42,10 @@ export default function App() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
 
-  // 🔥 Состояния для записи голоса
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return localStorage.getItem('fposte_dark_mode') === 'true';
+  });
+
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
@@ -59,6 +62,11 @@ export default function App() {
   useEffect(() => { 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
   }, [channelMessages, privateMessages, activeChannelId, activePrivateChat]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+    localStorage.setItem('fposte_dark_mode', String(isDarkMode));
+  }, [isDarkMode]);
 
   const checkAuth = async () => {
     const token = getToken();
@@ -108,7 +116,6 @@ export default function App() {
     try {
       const chs = await listChannels();
       setChannels(chs);
-      
       if (chs.length > 0 && !activeChannelId && !activePrivateChat) {
         const general = chs.find((c: Channel) => c.name === 'general') || chs[0];
         setActiveChannelId(general.id);
@@ -118,7 +125,6 @@ export default function App() {
       console.error("Failed to load channels", e); 
       setInitError("Не удалось загрузить каналы.");
     }
-
     try {
       const pChats = await listPrivateChats();
       setPrivateChats(pChats);
@@ -174,18 +180,15 @@ export default function App() {
     }
   };
 
-  // 🔥 Отправка сообщения (текст или файл)
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if ((!inputText.trim() && !audioBlob) || !user) return;
 
     const tempId = `temp-${Date.now()}`;
     const textToSend = inputText.trim();
-    
     let fileUrl = '';
     let fileName = '';
 
-    // Если есть аудио, загружаем его
     if (audioBlob) {
       setIsUploading(true);
       try {
@@ -242,7 +245,6 @@ export default function App() {
     }
   };
 
-  // 🔥 Загрузка файла через кнопку 📎
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -280,7 +282,6 @@ export default function App() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // 🔥 Запись голоса
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -289,9 +290,7 @@ export default function App() {
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
       };
 
       mediaRecorder.onstop = () => {
@@ -304,10 +303,7 @@ export default function App() {
       mediaRecorder.start();
       setIsRecording(true);
       setRecordingTime(0);
-
-      timerRef.current = window.setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
+      timerRef.current = window.setInterval(() => setRecordingTime(prev => prev + 1), 1000);
     } catch (err) {
       alert('Не удалось получить доступ к микрофону');
     }
@@ -317,10 +313,7 @@ export default function App() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     }
   };
 
@@ -328,19 +321,14 @@ export default function App() {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     }
     resetAudioRecording();
   };
 
   const resetAudioRecording = () => {
     setAudioBlob(null);
-    if (audioPreviewUrl) {
-      URL.revokeObjectURL(audioPreviewUrl);
-    }
+    if (audioPreviewUrl) { URL.revokeObjectURL(audioPreviewUrl); }
     setAudioPreviewUrl(null);
     setRecordingTime(0);
   };
@@ -363,20 +351,15 @@ export default function App() {
 
   const saveEdit = async () => {
     if (!editingMessageId || !editingText.trim()) return;
-
     try {
       if (activeChannelId) {
         await editMessage(editingMessageId, editingText.trim());
-        setChannelMessages(prev => prev.map(m => 
-          m.id === editingMessageId ? { ...m, text: editingText.trim(), edited: true } : m
-        ));
+        setChannelMessages(prev => prev.map(m => m.id === editingMessageId ? { ...m, text: editingText.trim(), edited: true } : m));
       } else if (activePrivateChat) {
         await editPrivateMessage(editingMessageId, editingText.trim());
         setPrivateMessages(prev => ({
           ...prev,
-          [activePrivateChat]: (prev[activePrivateChat] || []).map(m => 
-            m.id === editingMessageId ? { ...m, text: editingText.trim(), edited: true } : m
-          )
+          [activePrivateChat]: (prev[activePrivateChat] || []).map(m => m.id === editingMessageId ? { ...m, text: editingText.trim(), edited: true } : m)
         }));
       }
       cancelEditing();
@@ -387,7 +370,6 @@ export default function App() {
 
   const handleDeleteMessage = async (msgId: string) => {
     if (!confirm("Удалить это сообщение?")) return;
-
     try {
       if (activeChannelId) {
         await deleteMessage(msgId);
@@ -406,7 +388,6 @@ export default function App() {
 
   const handleClearChat = async () => {
     if (!confirm("Удалить ВСЮ переписку? Это действие нельзя отменить.")) return;
-
     try {
       if (activeChannelId) {
         await clearChannel(activeChannelId);
@@ -422,7 +403,6 @@ export default function App() {
     }
   };
 
-  // 🔥 Определение типа файла для отображения
   const getFileType = (fileName: string): 'image' | 'audio' | 'video' | 'other' => {
     const ext = fileName.toLowerCase().split('.').pop() || '';
     if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) return 'image';
@@ -433,18 +413,11 @@ export default function App() {
 
   if (!user) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', padding: '20px' }}>
-        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem', border: '1px solid #ccc', borderRadius: '8px', width: '100%', maxWidth: '300px' }}>
-          <h2 style={{ textAlign: 'center' }}>Вход в F.Poste</h2>
-          <input
-            type="text"
-            placeholder="Ник (мин. 5 символов)"
-            value={usernameInput}
-            onChange={(e) => setUsernameInput(e.target.value)}
-            style={{ padding: '0.75rem', fontSize: '1rem', borderRadius: '4px', border: '1px solid #ccc' }}
-            disabled={isLoading}
-          />
-          <button type="submit" disabled={isLoading} style={{ padding: '0.75rem', fontSize: '1rem', cursor: 'pointer', borderRadius: '4px', backgroundColor: '#2563eb', color: 'white', border: 'none' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', padding: '20px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem', border: '1px solid var(--border)', borderRadius: '8px', width: '100%', maxWidth: '300px', backgroundColor: 'var(--bg-secondary)' }}>
+          <h2 style={{ textAlign: 'center', color: 'var(--text-primary)' }}>Вход в F.Poste</h2>
+          <input type="text" placeholder="Ник (мин. 5 символов)" value={usernameInput} onChange={(e) => setUsernameInput(e.target.value)} style={{ padding: '0.75rem', fontSize: '1rem', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }} disabled={isLoading} />
+          <button type="submit" disabled={isLoading} style={{ padding: '0.75rem', fontSize: '1rem', cursor: 'pointer', borderRadius: '4px', backgroundColor: 'var(--accent)', color: 'white', border: 'none' }}>
             {isLoading ? 'Вход...' : 'Войти'}
           </button>
         </form>
@@ -452,82 +425,39 @@ export default function App() {
     );
   }
 
-  const currentMessages = activeChannelId 
-    ? channelMessages 
-    : (activePrivateChat ? (privateMessages[activePrivateChat] || []) : []);
-
+  const currentMessages = activeChannelId ? channelMessages : (activePrivateChat ? (privateMessages[activePrivateChat] || []) : []);
   const isPrivateChat = !!activePrivateChat;
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden' }}>
-      
-      <button 
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        style={{ position: 'fixed', top: '12px', left: '12px', zIndex: 100, padding: '6px 10px', display: 'none', backgroundColor: 'white', border: '1px solid #ddd', borderRadius: '4px', fontSize: '18px', lineHeight: 1 }}
-        className="mobile-menu-btn"
-      >
-        ☰
-      </button>
+    <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} style={{ position: 'fixed', top: '12px', left: '12px', zIndex: 100, padding: '6px 10px', display: 'none', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '18px', lineHeight: 1, color: 'var(--text-primary)' }} className="mobile-menu-btn">☰</button>
 
-      <div style={{
-        width: '280px',
-        borderRight: '1px solid #ddd',
-        display: 'flex',
-        flexDirection: 'column',
-        backgroundColor: '#f9f9f9',
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        height: '100%',
-        zIndex: 50,
-        transform: isSidebarOpen ? 'translateX(0)' : 'translateX(-100%)',
-        transition: 'transform 0.3s ease',
-      }} className="sidebar-desktop"> 
-
-        <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ width: '280px', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-secondary)', position: 'absolute', top: 0, left: 0, height: '100%', zIndex: 50, transform: isSidebarOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 0.3s ease' }} className="sidebar-desktop"> 
+        <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Привет, <b>{user.username}</b></span>
-          <button onClick={handleLogout} style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'red', fontSize: '0.9rem' }}>Выйти</button>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button onClick={() => setIsDarkMode(!isDarkMode)} style={{ cursor: 'pointer', background: 'none', border: 'none', fontSize: '1.2rem' }} title={isDarkMode ? 'Светлая тема' : 'Темная тема'}>
+              {isDarkMode ? '☀️' : '🌙'}
+            </button>
+            <button onClick={handleLogout} style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'red', fontSize: '0.9rem' }}>Выйти</button>
+          </div>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1rem' }}>Каналы</h3>
+          <h3 style={{ marginTop: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>Каналы</h3>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
             {channels.map(ch => (
-              <li 
-                key={ch.id} 
-                onClick={() => selectChannel(ch.id)}
-                style={{ 
-                  padding: '10px', 
-                  cursor: 'pointer', 
-                  borderRadius: '4px',
-                  backgroundColor: activeChannelId === ch.id ? '#e0e7ff' : 'transparent',
-                  marginBottom: '4px'
-                }}
-              >
-                # {ch.name}
-              </li>
+              <li key={ch.id} onClick={() => selectChannel(ch.id)} style={{ padding: '10px', cursor: 'pointer', borderRadius: '4px', backgroundColor: activeChannelId === ch.id ? 'var(--highlight)' : 'transparent', marginBottom: '4px', color: 'var(--text-primary)' }}># {ch.name}</li>
             ))}
           </ul>
 
-          <h3 style={{ marginTop: '1.5rem', fontSize: '1rem' }}>Личные чаты</h3>
+          <h3 style={{ marginTop: '1.5rem', fontSize: '1rem', color: 'var(--text-primary)' }}>Личные чаты</h3>
           {privateChats.length === 0 ? (
-            <div style={{ color: '#888', fontSize: '0.9rem', padding: '10px' }}>Нет личных чатов</div>
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', padding: '10px' }}>Нет личных чатов</div>
           ) : (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {privateChats.map(username => (
-                <li 
-                  key={username} 
-                  onClick={() => selectPrivateChat(username)}
-                  style={{ 
-                    padding: '10px', 
-                    cursor: 'pointer', 
-                    borderRadius: '4px',
-                    backgroundColor: activePrivateChat === username ? '#e0e7ff' : 'transparent',
-                    marginBottom: '4px'
-                  }}
-                >
-                  👤 {username}
-                </li>
+                <li key={username} onClick={() => selectPrivateChat(username)} style={{ padding: '10px', cursor: 'pointer', borderRadius: '4px', backgroundColor: activePrivateChat === username ? 'var(--highlight)' : 'transparent', marginBottom: '4px', color: 'var(--text-primary)' }}>👤 {username}</li>
               ))}
             </ul>
           )}
@@ -541,145 +471,71 @@ export default function App() {
               (e.target as any).newChatUser.value = '';
             }
           }} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
-            <input name="newChatUser" placeholder="Ник для ЛС" style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }} />
-            <button type="submit" style={{ cursor: 'pointer', padding: '0 12px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white' }}>OK</button>
+            <input name="newChatUser" placeholder="Ник для ЛС" style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }} />
+            <button type="submit" style={{ cursor: 'pointer', padding: '0 12px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>OK</button>
           </form>
         </div>
       </div>
 
-      {isSidebarOpen && (
-        <div 
-          onClick={() => setIsSidebarOpen(false)}
-          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 40 }}
-          className="mobile-backdrop"
-        />
-      )}
+      {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 40 }} className="mobile-backdrop" />}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
-        <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
-          <div>
+        <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
+          <div style={{ color: 'var(--text-primary)' }}>
             {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
           </div>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            {sendError && <div style={{ color: 'red', fontSize: '0.8rem' }}>{sendError}</div>}
-            <button 
-              onClick={handleClearChat}
-              style={{ padding: '4px 8px', fontSize: '0.75rem', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}
-              title="Удалить всю переписку"
-            >
-              🗑️ Очистить
-            </button>
+            {sendError && <div style={{ color: 'var(--error-text)', fontSize: '0.8rem' }}>{sendError}</div>}
+            <button onClick={handleClearChat} style={{ padding: '4px 8px', fontSize: '0.75rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Очистить</button>
           </div>
         </div>
 
         {initError && (
-          <div style={{ padding: '1rem', backgroundColor: '#fee2e2', color: '#991b1b', textAlign: 'center', borderBottom: '1px solid #fca5a5' }}>
-            {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer' }}>Повторить</button>
+          <div style={{ padding: '1rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', textAlign: 'center', borderBottom: '1px solid var(--error-border)' }}>
+            {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: 'var(--error-text)', cursor: 'pointer' }}>Повторить</button>
           </div>
         )}
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {isHistoryLoading ? (
-            <div style={{ textAlign: 'center', color: '#888', marginTop: '2rem' }}>Загрузка истории...</div>
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>Загрузка истории...</div>
           ) : currentMessages.length === 0 ? (
-            <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
+            <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
           ) : (
             currentMessages.map(msg => {
               const isOwn = msg.username === user.username;
               const isEditing = editingMessageId === msg.id;
-              
-              const label = isPrivateChat 
-                ? (isOwn ? 'Вы' : activePrivateChat)
-                : msg.username;
+              const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
               
               return (
-                <div key={msg.id} style={{ 
-                  alignSelf: isOwn ? 'flex-end' : 'flex-start',
-                  backgroundColor: isOwn ? '#d1fae5' : '#f3f4f6',
-                  padding: '0.5rem 1rem',
-                  borderRadius: '12px',
-                  maxWidth: '80%',
-                  position: 'relative'
-                }}>
-                  <div style={{ 
-                    fontSize: '0.75rem', 
-                    color: isOwn ? '#059669' : '#6b7280', 
-                    marginBottom: '4px',
-                    fontWeight: 'bold'
-                  }}>
-                    {label}
-                  </div>
+                <div key={msg.id} style={{ alignSelf: isOwn ? 'flex-end' : 'flex-start', backgroundColor: isOwn ? 'var(--bg-own-message)' : 'var(--bg-other-message)', padding: '0.5rem 1rem', borderRadius: '12px', maxWidth: '80%', position: 'relative' }}>
+                  <div style={{ fontSize: '0.75rem', color: isOwn ? '#10b981' : 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>{label}</div>
                   
                   {isEditing ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <textarea
-                        value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
-                        style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', resize: 'vertical', minHeight: '60px' }}
-                        autoFocus
-                      />
+                      <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', resize: 'vertical', minHeight: '60px' }} autoFocus />
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                        <button onClick={cancelEditing} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer' }}>
-                          Отмена
-                        </button>
-                        <button onClick={saveEdit} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                          Сохранить
-                        </button>
+                        <button onClick={cancelEditing} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: 'var(--bg-other-message)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-primary)' }}>Отмена</button>
+                        <button onClick={saveEdit} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Сохранить</button>
                       </div>
                     </div>
                   ) : (
                     <>
-                      {msg.text && <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>}
-                      
-                      {/* 🔥 Отображение вложений */}
+                      {msg.text && <div style={{ wordBreak: 'break-word', color: 'var(--text-primary)' }}>{msg.text}</div>}
                       {msg.fileUrl && msg.fileName && (
                         <div style={{ marginTop: '8px' }}>
-                          {getFileType(msg.fileName) === 'image' && (
-                            <img 
-                              src={msg.fileUrl} 
-                              alt={msg.fileName}
-                              style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }}
-                              onClick={() => window.open(msg.fileUrl, '_blank')}
-                            />
-                          )}
-                          {getFileType(msg.fileName) === 'audio' && (
-                            <audio controls src={msg.fileUrl} style={{ width: '100%', maxWidth: '300px' }}>
-                              Ваш браузер не поддерживает аудио.
-                            </audio>
-                          )}
-                          {getFileType(msg.fileName) === 'video' && (
-                            <video controls src={msg.fileUrl} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }}>
-                              Ваш браузер не поддерживает видео.
-                            </video>
-                          )}
-                          {getFileType(msg.fileName) === 'other' && (
-                            <a 
-                              href={msg.fileUrl} 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: '#e0e7ff', borderRadius: '6px', color: '#2563eb', textDecoration: 'none', fontSize: '0.9rem' }}
-                            >
-                              📎 {msg.fileName}
-                            </a>
-                          )}
+                          {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => window.open(msg.fileUrl, '_blank')} />}
+                          {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} style={{ width: '100%', maxWidth: '300px' }} />}
+                          {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />}
+                          {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: 'var(--highlight)', borderRadius: '6px', color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem' }}>📎 {msg.fileName}</a>}
                         </div>
                       )}
-                      
-                      <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>
-                          {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          {msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}
-                        </span>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
                         {isOwn && (
                           <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
-                            {!msg.fileUrl && (
-                              <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }} title="Редактировать">
-                                ✏️
-                              </button>
-                            )}
-                            <button onClick={() => handleDeleteMessage(msg.id)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: '#991b1b' }} title="Удалить">
-                              🗑️
-                            </button>
+                            {!msg.fileUrl && <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }} title="Редактировать">✏️</button>}
+                            <button onClick={() => handleDeleteMessage(msg.id)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--error-text)' }} title="Удалить">🗑️</button>
                           </div>
                         )}
                       </div>
@@ -692,93 +548,70 @@ export default function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* 🔥 Панель записи голоса */}
         {(isRecording || audioBlob) && (
-          <div style={{ padding: '1rem', borderTop: '1px solid #ddd', backgroundColor: '#fef3c7', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ padding: '1rem', borderTop: '1px solid var(--border)', backgroundColor: isDarkMode ? '#78350f' : '#fef3c7', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
             {isRecording ? (
               <>
                 <div style={{ width: '12px', height: '12px', backgroundColor: '#ef4444', borderRadius: '50%', animation: 'pulse 1s infinite' }} />
                 <span style={{ fontWeight: 'bold' }}>{formatTime(recordingTime)}</span>
-                <button onClick={cancelRecording} style={{ padding: '6px 12px', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}>
-                  ❌ Отмена
-                </button>
-                <button onClick={stopRecording} style={{ padding: '6px 12px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                  ⏹️ Стоп
-                </button>
+                <button onClick={cancelRecording} style={{ padding: '6px 12px', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', borderRadius: '4px', cursor: 'pointer' }}>❌ Отмена</button>
+                <button onClick={stopRecording} style={{ padding: '6px 12px', backgroundColor: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>⏹️ Стоп</button>
               </>
             ) : audioBlob && (
               <>
-                <audio controls src={audioPreviewUrl || ''} style={{ flex: 1, maxWidth: '300px' }}>
-                  Ваш браузер не поддерживает аудио.
-                </audio>
-                <button onClick={resetAudioRecording} style={{ padding: '6px 12px', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}>
-                  ❌
-                </button>
+                <audio controls src={audioPreviewUrl || ''} style={{ flex: 1, maxWidth: '300px' }} />
+                <button onClick={resetAudioRecording} style={{ padding: '6px 12px', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', borderRadius: '4px', cursor: 'pointer' }}>❌</button>
               </>
             )}
           </div>
         )}
 
-        <form onSubmit={handleSendMessage} style={{ padding: '1rem', borderTop: '1px solid #ddd', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          {/* 🔥 Кнопка загрузки файла */}
-          <input 
-            type="file" 
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-            accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
-          />
-          <button 
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-            style={{ padding: '0.5rem', fontSize: '1.2rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' }}
-            title="Прикрепить файл"
-          >
-            📎
-          </button>
-          
-          {/* 🔥 Кнопка записи голоса */}
-          <button 
-            type="button"
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={isUploading}
-            style={{ 
-              padding: '0.5rem', 
-              fontSize: '1.2rem', 
-              backgroundColor: isRecording ? '#fee2e2' : 'transparent', 
-              border: 'none', 
-              cursor: 'pointer',
-              borderRadius: '50%'
-            }}
-            title={isRecording ? 'Остановить запись' : 'Записать голосовое сообщение'}
-          >
-            {isRecording ? '⏹️' : '🎤'}
-          </button>
-
-          <input
-            type="text"
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-            placeholder={activePrivateChat ? `Сообщение для ${activePrivateChat}...` : "Введите сообщение..."}
-            style={{ flex: 1, padding: '0.75rem', borderRadius: '20px', border: '1px solid #ccc', outline: 'none' }}
-            disabled={isUploading}
-          />
-          <button 
-            type="submit" 
-            disabled={(!inputText.trim() && !audioBlob) || isUploading} 
-            style={{ padding: '0 1.5rem', borderRadius: '20px', border: 'none', backgroundColor: '#2563eb', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}
-          >
-            {isUploading ? '⏳' : '➤'}
-          </button>
+        <form onSubmit={handleSendMessage} style={{ padding: '1rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <input type="file" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" />
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} style={{ padding: '0.5rem', fontSize: '1.2rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' }} title="Прикрепить файл">📎</button>
+          <button type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isUploading} style={{ padding: '0.5rem', fontSize: '1.2rem', backgroundColor: isRecording ? 'var(--error-bg)' : 'transparent', border: 'none', cursor: 'pointer', borderRadius: '50%' }} title={isRecording ? 'Остановить запись' : 'Записать голосовое сообщение'}>{isRecording ? '⏹️' : '🎤'}</button>
+          <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder={activePrivateChat ? `Сообщение для ${activePrivateChat}...` : "Введите сообщение..."} style={{ flex: 1, padding: '0.75rem', borderRadius: '20px', border: '1px solid var(--input-border)', outline: 'none', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }} disabled={isUploading} />
+          <button type="submit" disabled={(!inputText.trim() && !audioBlob) || isUploading} style={{ padding: '0 1.5rem', borderRadius: '20px', border: 'none', backgroundColor: 'var(--accent)', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>{isUploading ? '⏳' : '➤'}</button>
         </form>
       </div>
 
       <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
+        :root {
+          --bg-primary: #ffffff;
+          --bg-secondary: #f9f9f9;
+          --bg-own-message: #d1fae5;
+          --bg-other-message: #f3f4f6;
+          --text-primary: #000000;
+          --text-secondary: #6b7280;
+          --text-muted: #999999;
+          --border: #dddddd;
+          --input-bg: #ffffff;
+          --input-border: #cccccc;
+          --accent: #2563eb;
+          --highlight: #e0e7ff;
+          --error-bg: #fee2e2;
+          --error-text: #991b1b;
+          --error-border: #fca5a5;
         }
+        [data-theme="dark"] {
+          --bg-primary: #1a1a1a;
+          --bg-secondary: #252525;
+          --bg-own-message: #064e3b;
+          --bg-other-message: #374151;
+          --text-primary: #f3f4f6;
+          --text-secondary: #9ca3af;
+          --text-muted: #6b7280;
+          --border: #3f3f3f;
+          --input-bg: #2d2d2d;
+          --input-border: #4b5563;
+          --accent: #3b82f6;
+          --highlight: #1e3a8a;
+          --error-bg: #7f1d1d;
+          --error-text: #fecaca;
+          --error-border: #991b1b;
+        }
+        body { background-color: var(--bg-primary); color: var(--text-primary); margin: 0; transition: background-color 0.3s ease, color 0.3s ease; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
         @media (min-width: 769px) {
           .sidebar-desktop { position: relative !important; transform: none !important; }
           .mobile-menu-btn { display: none !important; }
@@ -786,7 +619,7 @@ export default function App() {
           .main-area { margin-left: 0 !important; }
         }
         @media (max-width: 768px) {
-          .sidebar-desktop { width: 85% !important; max-width: 320px !important; box-shadow: 2px 0 8px rgba(0,0,0,0.2); }
+          .sidebar-desktop { width: 85% !important; max-width: 320px !important; box-shadow: 2px 0 8px rgba(0,0,0,0.4); }
           .mobile-menu-btn { display: block !important; }
           .chat-header { padding-top: 50px !important; }
         }
