@@ -52,7 +52,6 @@ export async function getMe() {
   return apiRequest('/api/me');
 }
 
-// 🔥 ОБНОВЛЕНО: поддержка fileUrl и fileName
 export async function sendMessage(text: string, username: string, channelId?: string, fileUrl?: string, fileName?: string) {
   return apiRequest('/api/send', {
     method: 'POST',
@@ -71,9 +70,14 @@ export async function loadHistory(channelId?: string) {
   const data = await apiRequest('/api/messages' + query);
   if (!Array.isArray(data)) return [];
   return data.map((m: any) => ({
-    ...m,
-    file_url: m.file_url || m.fileUrl || '',
-    file_name: m.file_name || m.fileName || '',
+    id: m.id,
+    username: m.username,
+    text: m.text,
+    timestamp: m.timestamp,
+    channelId: m.channelId || m.channel_id,
+    edited: m.edited,
+    fileUrl: m.fileUrl || m.file_url || '',
+    fileName: m.fileName || m.file_name || '',
   }));
 }
 
@@ -103,7 +107,6 @@ export async function createChannel(name: string) {
   });
 }
 
-// 🔥 ОБНОВЛЕНО: поддержка fileUrl и fileName
 export async function sendPrivateMessage(to: string, text: string, fileUrl?: string, fileName?: string) {
   return apiRequest('/api/private/send', {
     method: 'POST',
@@ -115,9 +118,13 @@ export async function loadPrivateHistory(withUser: string) {
   const data = await apiRequest(`/api/private/history?with=${withUser}`);
   if (!Array.isArray(data)) return [];
   return data.map((m: any) => ({
-    ...m,
-    file_url: m.file_url || m.fileUrl || '',
-    file_name: m.file_name || m.fileName || '',
+    id: m.id,
+    username: m.from || m.from_username || m.username,
+    text: m.text,
+    timestamp: m.timestamp,
+    edited: m.edited,
+    fileUrl: m.fileUrl || m.file_url || '',
+    fileName: m.fileName || m.file_name || '',
   }));
 }
 
@@ -134,7 +141,6 @@ export async function listPrivateChats() {
   }
 }
 
-// 🔥 ОБНОВЛЕНО: возвращает объект { url, name }
 export async function uploadFile(file: File): Promise<{ url: string; name: string }> {
   const formData = new FormData();
   formData.append('file', file);
