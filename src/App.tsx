@@ -21,7 +21,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [usernameInput, setUsernameInput] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [initError, setInitError] = useState<string | null>(null); // 🔥 Видимая ошибка инициализации
+  const [initError, setInitError] = useState<string | null>(null);
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
@@ -100,7 +100,7 @@ export default function App() {
       }
     } catch (e) { 
       console.error("Failed to load channels", e); 
-      setInitError("Не удалось загрузить каналы. Проверьте интернет.");
+      setInitError("Не удалось загрузить каналы.");
     }
 
     try {
@@ -108,7 +108,6 @@ export default function App() {
       setPrivateChats(pChats);
     } catch (e) { 
       console.error("Failed to load private chats", e); 
-      // Не прерываем работу, если не загрузились только личные чаты
     }
     setIsHistoryLoading(false);
   };
@@ -228,16 +227,18 @@ export default function App() {
     ? channelMessages 
     : (activePrivateChat ? (privateMessages[activePrivateChat] || []) : []);
 
+  const isPrivateChat = !!activePrivateChat;
+
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden' }}>
       
-      {/* 🔥 Кнопка меню теперь с текстом для ясности на телефоне */}
+      {/* 🔥 Кнопка меню: маленькая, без текста, не перекрывает заголовок */}
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        style={{ position: 'fixed', top: '10px', left: '10px', zIndex: 100, padding: '8px 12px', display: 'none', backgroundColor: 'white', border: '1px solid #ccc', borderRadius: '4px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}
+        style={{ position: 'fixed', top: '12px', left: '12px', zIndex: 100, padding: '6px 10px', display: 'none', backgroundColor: 'white', border: '1px solid #ddd', borderRadius: '4px', fontSize: '18px', lineHeight: 1 }}
         className="mobile-menu-btn"
       >
-        ☰ Меню
+        ☰
       </button>
 
       <div style={{
@@ -327,14 +328,14 @@ export default function App() {
       )}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
-        <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* 🔥 Заголовок чата: на мобильном добавлен отступ сверху, чтобы не прятался под кнопкой */}
+        <div style={{ padding: '1rem', paddingTop: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
           <div>
             {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
           </div>
-          {sendError && <div style={{ color: 'red', fontSize: '0.8rem' }}>{sendError}</div>}
+          {sendError && <div style={{ color: 'red', fontSize: '0.8rem', marginLeft: '10px' }}>{sendError}</div>}
         </div>
 
-        {/* 🔥 Видимое сообщение об ошибке инициализации */}
         {initError && (
           <div style={{ padding: '1rem', backgroundColor: '#fee2e2', color: '#991b1b', textAlign: 'center', borderBottom: '1px solid #fca5a5' }}>
             {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: '#991b1b', cursor: 'pointer' }}>Повторить</button>
@@ -347,26 +348,43 @@ export default function App() {
           ) : currentMessages.length === 0 ? (
             <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
           ) : (
-            currentMessages.map(msg => (
-              <div key={msg.id} style={{ 
-                alignSelf: msg.username === user.username ? 'flex-end' : 'flex-start',
-                backgroundColor: msg.username === user.username ? '#d1fae5' : '#f3f4f6',
-                padding: '0.5rem 1rem',
-                borderRadius: '12px',
-                maxWidth: '80%'
-              }}>
-                {msg.username !== user.username && <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '2px' }}>{msg.username}</div>}
-                <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>
-                {msg.file_url && (
-                  <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
-                    📎 {msg.file_name || 'Файл'}
-                  </a>
-                )}
-                <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px' }}>
-                  {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            currentMessages.map(msg => {
+              const isOwn = msg.username === user.username;
+              
+              // 🔥 В личных чатах добавляем явные метки "Вы" и "Собеседник"
+              const label = isPrivateChat 
+                ? (isOwn ? 'Вы' : activePrivateChat)
+                : msg.username;
+              
+              return (
+                <div key={msg.id} style={{ 
+                  alignSelf: isOwn ? 'flex-end' : 'flex-start',
+                  backgroundColor: isOwn ? '#d1fae5' : '#f3f4f6',
+                  padding: '0.5rem 1rem',
+                  borderRadius: '12px',
+                  maxWidth: '80%'
+                }}>
+                  {/* 🔥 Метка отправителя: жирная, с цветом */}
+                  <div style={{ 
+                    fontSize: '0.75rem', 
+                    color: isOwn ? '#059669' : '#6b7280', 
+                    marginBottom: '4px',
+                    fontWeight: 'bold'
+                  }}>
+                    {label}
+                  </div>
+                  <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>
+                  {msg.file_url && (
+                    <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
+                      📎 {msg.file_name || 'Файл'}
+                    </a>
+                  )}
+                  <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px' }}>
+                    {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
           <div ref={messagesEndRef} />
         </div>
@@ -395,6 +413,8 @@ export default function App() {
         @media (max-width: 768px) {
           .sidebar-desktop { width: 85% !important; max-width: 320px !important; box-shadow: 2px 0 8px rgba(0,0,0,0.2); }
           .mobile-menu-btn { display: block !important; }
+          /* 🔥 На мобильном добавляем отступ сверху к заголовку, чтобы не перекрывался кнопкой */
+          .chat-header { padding-top: 50px !important; }
         }
       `}</style>
     </div>
