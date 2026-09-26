@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -176,7 +175,6 @@ func loadHistory(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(messages)
 }
 
-// 🔥 ОБНОВЛЕНО: поддержка fileUrl и fileName
 func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Text      string `json:"text"`
@@ -346,7 +344,6 @@ func createChannel(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"id": id, "name": req.Name})
 }
 
-// 🔥 ОБНОВЛЕНО: поддержка fileUrl и fileName
 func sendPrivateMessage(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Username")
 	var req struct {
@@ -539,7 +536,6 @@ func listPrivateChats(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(chats)
 }
 
-// 🔥 ОБНОВЛЕНО: уникальные имена файлов
 func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseMultipartForm(25 << 20); err != nil { // 25 MB
 		http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
@@ -553,7 +549,6 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 	defer file.Close()
 
 	// Генерируем уникальное имя: timestamp_оригинальное_имя
-	ext := filepath.Ext(header.Filename)
 	uniqueName := fmt.Sprintf("%d_%s", time.Now().UnixNano(), header.Filename)
 	dst, err := os.Create(fmt.Sprintf("./uploads/%s", uniqueName))
 	if err != nil {
@@ -603,7 +598,7 @@ func main() {
 	http.HandleFunc("/api/private/chats", requireAuth(listPrivateChats))
 	http.HandleFunc("/upload", requireAuth(uploadHandler))
 	
-	// 🔥 НОВОЕ: раздача файлов из папки uploads
+	// Раздача файлов из папки uploads
 	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 	
 	http.HandleFunc("/api/vapid-public-key", func(w http.ResponseWriter, r *http.Request) {
