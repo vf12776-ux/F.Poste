@@ -1,7 +1,7 @@
 const API_BASE = '';
 
 export function setToken(token: string) {
-  localStorage.setItem('fposte_token', token);
+  localStorage.setItem('fposte_token', token); // Используем единый ключ
 }
 
 export function getToken(): string | null {
@@ -27,7 +27,8 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
       clearToken();
       window.location.reload();
     }
-    throw new Error('API error');
+    const errText = await response.text();
+    throw new Error(`API error: ${response.status} - ${errText}`);
   }
   
   return response.json();
@@ -44,6 +45,7 @@ export async function getMe() {
   return apiRequest('/api/me');
 }
 
+// Обратите внимание на порядок аргументов: text, username, channelId
 export async function sendMessage(text: string, username: string, channelId?: string) {
   return apiRequest('/api/send', {
     method: 'POST',
@@ -69,6 +71,7 @@ export async function clearChat(username: string) {
     body: JSON.stringify({ username }),
   });
 }
+
 export async function listChannels() {
   return apiRequest('/api/channels');
 }
@@ -79,6 +82,7 @@ export async function createChannel(name: string) {
     body: JSON.stringify({ name }),
   });
 }
+
 export async function sendPrivateMessage(to: string, text: string) {
   return apiRequest('/api/private/send', {
     method: 'POST',
@@ -92,4 +96,20 @@ export async function loadPrivateHistory(withUser: string) {
 
 export async function listPrivateChats() {
   return apiRequest('/api/private/chats');
+}
+
+// Добавлено для полноты картины (если понадобится загрузка файлов)
+export async function uploadFile(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const token = getToken();
+  
+  const response = await fetch(API_BASE + '/upload', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: formData,
+  });
+  
+  if (!response.ok) throw new Error('Upload error');
+  return response.json();
 }
