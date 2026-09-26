@@ -132,10 +132,10 @@ func loadHistory(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	if channelID != "" {
-		rows, err = db.Query(`SELECT id, username, text, file_url, file_name, timestamp, channel_id 
+		rows, err = db.Query(`SELECT id, username, text, file_url, file_name, timestamp, channel_id, edited_at 
 		                       FROM messages WHERE channel_id = $1 ORDER BY timestamp ASC LIMIT 100`, channelID)
 	} else {
-		rows, err = db.Query(`SELECT id, username, text, file_url, file_name, timestamp, channel_id 
+		rows, err = db.Query(`SELECT id, username, text, file_url, file_name, timestamp, channel_id, edited_at 
 		                       FROM messages WHERE channel_id IS NULL ORDER BY timestamp ASC LIMIT 100`)
 	}
 	if err != nil {
@@ -149,7 +149,8 @@ func loadHistory(w http.ResponseWriter, r *http.Request) {
 		var id, username, text string
 		var fileURL, fileName, chID sql.NullString
 		var timestamp int64
-		if err := rows.Scan(&id, &username, &text, &fileURL, &fileName, &timestamp, &chID); err != nil {
+		var editedAt sql.NullTime
+		if err := rows.Scan(&id, &username, &text, &fileURL, &fileName, &timestamp, &chID, &editedAt); err != nil {
 			continue
 		}
 		msg := map[string]interface{}{
@@ -165,6 +166,9 @@ func loadHistory(w http.ResponseWriter, r *http.Request) {
 		}
 		if chID.Valid {
 			msg["channelId"] = chID.String
+		}
+		if editedAt.Valid {
+			msg["edited"] = true
 		}
 		messages = append(messages, msg)
 	}
@@ -199,16 +203,53 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
+// 🔥 НОВОЕ: Редактирование сообщения
+func editMessageHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
 	var req struct {
-		ID       string `json:"id"`
-		Username string `json:"username"`
+		ID   string `json:"id"`
+		Text string `json:"text"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
-	_, err := db.Exec("DELETE FROM messages WHERE id = $1 AND username = $2", req.ID, req.Username)
+
+	// Проверяем, что сообщение принадлежит пользователю
+	var msgUsername string
+	err := db.QueryRow("SELECT username FROM messages WHERE id = $1", req.ID).Scan(&msgUsername)
+	if err != nil || msgUsername != username {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	_, err = db.Exec(`UPDATE messages SET text = $1, edited_at = NOW() WHERE id = $2`, req.Text, req.ID)
+	if err != nil {
+		http.Error(w, "Failed to edit message", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем, что сообщение принадлежит пользователю
+	var msgUsername string
+	err := db.QueryRow("SELECT username FROM messages WHERE id = $1", req.ID).Scan(&msgUsername)
+	if err != nil || msgUsername != username {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	_, err = db.Exec("DELETE FROM messages WHERE id = $1", req.ID)
 	if err != nil {
 		http.Error(w, "Failed to delete", http.StatusInternalServerError)
 		return
@@ -216,7 +257,28 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// 🔥 НОВОЕ: Удаление всех сообщений в канале
+func clearChannelHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	var req struct {
+		ChannelID string `json:"channelId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Удаляем только свои сообщения из канала
+	_, err := db.Exec("DELETE FROM messages WHERE channel_id = $1 AND username = $2", req.ChannelID, username)
+	if err != nil {
+		http.Error(w, "Failed to clear", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func clearChatHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
 	var req struct {
 		Username string `json:"username"`
 	}
@@ -280,6 +342,7 @@ func createChannel(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": id, "name": req.Name})
 }
+
 func sendPrivateMessage(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Username")
 	var req struct {
@@ -318,7 +381,7 @@ func loadPrivateHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	other = strings.ToLower(strings.TrimSpace(other))
 
-	rows, err := db.Query(`SELECT id, from_username, to_username, text, file_url, file_name, timestamp 
+	rows, err := db.Query(`SELECT id, from_username, to_username, text, file_url, file_name, timestamp, edited_at 
 	                       FROM private_messages 
 	                       WHERE (from_username = $1 AND to_username = $2) 
 	                          OR (from_username = $2 AND to_username = $1)
@@ -334,7 +397,8 @@ func loadPrivateHistory(w http.ResponseWriter, r *http.Request) {
 		var id, from, to, text string
 		var fileURL, fileName sql.NullString
 		var timestamp int64
-		if err := rows.Scan(&id, &from, &to, &text, &fileURL, &fileName, &timestamp); err != nil {
+		var editedAt sql.NullTime
+		if err := rows.Scan(&id, &from, &to, &text, &fileURL, &fileName, &timestamp, &editedAt); err != nil {
 			continue
 		}
 		msg := map[string]interface{}{
@@ -349,10 +413,91 @@ func loadPrivateHistory(w http.ResponseWriter, r *http.Request) {
 			msg["fileUrl"] = fileURL.String
 			msg["fileName"] = fileName.String
 		}
+		if editedAt.Valid {
+			msg["edited"] = true
+		}
 		messages = append(messages, msg)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(messages)
+}
+
+// 🔥 НОВОЕ: Редактирование личного сообщения
+func editPrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	var req struct {
+		ID   string `json:"id"`
+		Text string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем, что сообщение принадлежит пользователю
+	var fromUsername string
+	err := db.QueryRow("SELECT from_username FROM private_messages WHERE id = $1", req.ID).Scan(&fromUsername)
+	if err != nil || fromUsername != username {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	_, err = db.Exec(`UPDATE private_messages SET text = $1, edited_at = NOW() WHERE id = $2`, req.Text, req.ID)
+	if err != nil {
+		http.Error(w, "Failed to edit message", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// 🔥 НОВОЕ: Удаление личного сообщения
+func deletePrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем, что сообщение принадлежит пользователю
+	var fromUsername string
+	err := db.QueryRow("SELECT from_username FROM private_messages WHERE id = $1", req.ID).Scan(&fromUsername)
+	if err != nil || fromUsername != username {
+		http.Error(w, "Unauthorized", http.StatusForbidden)
+		return
+	}
+
+	_, err = db.Exec("DELETE FROM private_messages WHERE id = $1", req.ID)
+	if err != nil {
+		http.Error(w, "Failed to delete", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// 🔥 НОВОЕ: Удаление всей переписки с пользователем
+func clearPrivateChatHandler(w http.ResponseWriter, r *http.Request) {
+	username := r.Header.Get("X-Username")
+	var req struct {
+		WithUser string `json:"withUser"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+	req.WithUser = strings.ToLower(strings.TrimSpace(req.WithUser))
+
+	// Удаляем все сообщения между двумя пользователями
+	_, err := db.Exec(`DELETE FROM private_messages 
+	                   WHERE (from_username = $1 AND to_username = $2) 
+	                      OR (from_username = $2 AND to_username = $1)`, username, req.WithUser)
+	if err != nil {
+		http.Error(w, "Failed to clear", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func listPrivateChats(w http.ResponseWriter, r *http.Request) {
@@ -381,8 +526,8 @@ func listPrivateChats(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		chats = append(chats, map[string]interface{}{
-			"partner":   partner,
-			"lastTs":    lastTs,
+			"partner": partner,
+			"lastTs":  lastTs,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -441,11 +586,16 @@ func main() {
 	http.HandleFunc("/api/me", requireAuth(meHandler))
 	http.HandleFunc("/api/messages", requireAuth(loadHistory))
 	http.HandleFunc("/api/send", requireAuth(sendMessageHandler))
+	http.HandleFunc("/api/edit", requireAuth(editMessageHandler))           // 🔥 НОВОЕ
 	http.HandleFunc("/api/delete", requireAuth(deleteMessageHandler))
 	http.HandleFunc("/api/clear", requireAuth(clearChatHandler))
+	http.HandleFunc("/api/clear-channel", requireAuth(clearChannelHandler)) // 🔥 НОВОЕ
 	http.HandleFunc("/api/channels", listChannels)
 	http.HandleFunc("/api/channels/create", requireAuth(createChannel))
-		http.HandleFunc("/api/private/send", requireAuth(sendPrivateMessage))
+	http.HandleFunc("/api/private/send", requireAuth(sendPrivateMessage))
+	http.HandleFunc("/api/private/edit", requireAuth(editPrivateMessageHandler))   // 🔥 НОВОЕ
+	http.HandleFunc("/api/private/delete", requireAuth(deletePrivateMessageHandler)) // 🔥 НОВОЕ
+	http.HandleFunc("/api/private/clear", requireAuth(clearPrivateChatHandler))    // 🔥 НОВОЕ
 	http.HandleFunc("/api/private/history", requireAuth(loadPrivateHistory))
 	http.HandleFunc("/api/private/chats", requireAuth(listPrivateChats))
 	http.HandleFunc("/upload", uploadHandler)
