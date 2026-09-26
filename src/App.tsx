@@ -12,8 +12,8 @@ interface Message {
   id: string; 
   username: string; 
   text: string; 
-  fileUrl?: string; 
-  fileName?: string; 
+  file_url?: string; 
+  file_name?: string; 
   timestamp: number; 
   channelId?: string;
   edited?: boolean;
