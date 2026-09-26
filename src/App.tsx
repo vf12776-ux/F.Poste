@@ -479,7 +479,7 @@ export default function App() {
 
       {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 40 }} className="mobile-backdrop" />}
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
+      <div className="main-area">
         <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
           <div style={{ color: 'var(--text-primary)' }}>
             {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
@@ -587,9 +587,8 @@ export default function App() {
               const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
               
               return (
-                <div key={msg.id} style={{ alignSelf: isOwn ? 'flex-end' : 'flex-start', backgroundColor: isOwn ? 'var(--bg-own-message)' : 'var(--bg-other-message)', padding: '0.5rem 1rem', borderRadius: '12px', maxWidth: '80%', position: 'relative' }}>
-                  <div style={{ fontSize: '0.75rem', color: isOwn ? '#10b981' : 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>{label}</div>
-                  
+                <div key={msg.id} className={`message ${isOwn ? 'own' : 'other'}`}>
+                  <div className="message-author">{label}</div>
                   {isEditing ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', resize: 'vertical', minHeight: '60px' }} autoFocus />
@@ -600,7 +599,7 @@ export default function App() {
                     </div>
                   ) : (
                     <>
-                      {msg.text && <div style={{ wordBreak: 'break-word', color: 'var(--text-primary)' }}>{msg.text}</div>}
+                      {msg.text && <div className="message-text">{msg.text}</div>}
                       {msg.fileUrl && msg.fileName && (
                         <div style={{ marginTop: '8px' }}>
                           {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => window.open(msg.fileUrl, '_blank')} />}
