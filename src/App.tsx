@@ -204,7 +204,7 @@ export default function App() {
       setIsUploading(false);
     }
 
-        const newMessage: Message = {
+    const newMessage: Message = {
       id: tempId,
       username: user.username,
       text: textToSend,
@@ -253,7 +253,7 @@ export default function App() {
     try {
       const uploaded = await uploadFile(file);
       const tempId = `temp-${Date.now()}`;
-            const newMessage: Message = {
+      const newMessage: Message = {
         id: tempId,
         username: user.username,
         text: '',
@@ -413,11 +413,11 @@ export default function App() {
 
   if (!user) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', padding: '20px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem', border: '1px solid var(--border)', borderRadius: '8px', width: '100%', maxWidth: '300px', backgroundColor: 'var(--bg-secondary)' }}>
           <h2 style={{ textAlign: 'center', color: 'var(--text-primary)' }}>Вход в F.Poste</h2>
-          <input type="text" placeholder="Ник (мин. 5 символов)" value={usernameInput} onChange={(e) => setUsernameInput(e.target.value)} style={{ padding: '0.75rem', fontSize: '1rem', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }} disabled={isLoading} />
-          <button type="submit" disabled={isLoading} style={{ padding: '0.75rem', fontSize: '1rem', cursor: 'pointer', borderRadius: '4px', backgroundColor: 'var(--accent)', color: 'white', border: 'none' }}>
+          <input type="text" placeholder="Ник (мин. 5 символов)" value={usernameInput} onChange={(e) => setUsernameInput(e.target.value)} className="input-field" disabled={isLoading} />
+          <button type="submit" disabled={isLoading} className="btn btn-primary">
             {isLoading ? 'Вход...' : 'Войти'}
           </button>
         </form>
@@ -429,163 +429,6 @@ export default function App() {
   const isPrivateChat = !!activePrivateChat;
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} style={{ position: 'fixed', top: '12px', left: '12px', zIndex: 100, padding: '6px 10px', display: 'none', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '18px', lineHeight: 1, color: 'var(--text-primary)' }} className="mobile-menu-btn">☰</button>
-
-      <div style={{ width: '280px', borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-secondary)', position: 'absolute', top: 0, left: 0, height: '100%', zIndex: 50, transform: isSidebarOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 0.3s ease' }} className="sidebar-desktop"> 
-        <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Привет, <b>{user.username}</b></span>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button onClick={() => setIsDarkMode(!isDarkMode)} style={{ cursor: 'pointer', background: 'none', border: 'none', fontSize: '1.2rem' }} title={isDarkMode ? 'Светлая тема' : 'Темная тема'}>
-              {isDarkMode ? '☀️' : '🌙'}
-            </button>
-            <button onClick={handleLogout} style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'red', fontSize: '0.9rem' }}>Выйти</button>
-          </div>
-        </div>
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
-          <h3 style={{ marginTop: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>Каналы</h3>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-            {channels.map(ch => (
-              <li key={ch.id} onClick={() => selectChannel(ch.id)} style={{ padding: '10px', cursor: 'pointer', borderRadius: '4px', backgroundColor: activeChannelId === ch.id ? 'var(--highlight)' : 'transparent', marginBottom: '4px', color: 'var(--text-primary)' }}># {ch.name}</li>
-            ))}
-          </ul>
-
-          <h3 style={{ marginTop: '1.5rem', fontSize: '1rem', color: 'var(--text-primary)' }}>Личные чаты</h3>
-          {privateChats.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', padding: '10px' }}>Нет личных чатов</div>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {privateChats.map(username => (
-                <li key={username} onClick={() => selectPrivateChat(username)} style={{ padding: '10px', cursor: 'pointer', borderRadius: '4px', backgroundColor: activePrivateChat === username ? 'var(--highlight)' : 'transparent', marginBottom: '4px', color: 'var(--text-primary)' }}>👤 {username}</li>
-              ))}
-            </ul>
-          )}
-          
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            const target = (e.target as any).newChatUser.value.trim();
-            if (target && target !== user.username) {
-              if (!privateChats.includes(target)) setPrivateChats(prev => [...prev, target]);
-              selectPrivateChat(target);
-              (e.target as any).newChatUser.value = '';
-            }
-          }} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
-            <input name="newChatUser" placeholder="Ник для ЛС" style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }} />
-            <button type="submit" style={{ cursor: 'pointer', padding: '0 12px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>OK</button>
-          </form>
-        </div>
-      </div>
-
-      {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 40 }} className="mobile-backdrop" />}
-
-      <div className="main-area">
-        <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
-          <div style={{ color: 'var(--text-primary)' }}>
-            {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
-          </div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            {sendError && <div style={{ color: 'var(--error-text)', fontSize: '0.8rem' }}>{sendError}</div>}
-            <button onClick={handleClearChat} style={{ padding: '4px 8px', fontSize: '0.75rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Очистить</button>
-          </div>
-        </div>
-
-        {initError && (
-          <div style={{ padding: '1rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', textAlign: 'center', borderBottom: '1px solid var(--error-border)' }}>
-            {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: 'var(--error-text)', cursor: 'pointer' }}>Повторить</button>
-          </div>
-        )}
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {isHistoryLoading ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>Загрузка истории...</div>
-          ) : currentMessages.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
-          ) : (
-            currentMessages.map(msg => {
-              const isOwn = msg.username === user.username;
-              const isEditing = editingMessageId === msg.id;
-              const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
-              
-                return (
-    <div className="app-container">
-      <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mobile-menu-btn">☰</button>
-
-      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}> 
-        <div className="sidebar-header">
-          <span>Привет, <b>{user.username}</b></span>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-            <button onClick={() => setIsDarkMode(!isDarkMode)} style={{ cursor: 'pointer', background: 'none', border: 'none', fontSize: '1.2rem' }} title={isDarkMode ? 'Светлая тема' : 'Темная тема'}>
-              {isDarkMode ? '☀️' : '🌙'}
-            </button>
-            <button onClick={handleLogout} style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'red', fontSize: '0.9rem' }}>Выйти</button>
-          </div>
-        </div>
-
-        <div className="sidebar-content">
-          <h3>Каналы</h3>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-            {channels.map(ch => (
-              <li key={ch.id} onClick={() => selectChannel(ch.id)} className={`channel-item ${activeChannelId === ch.id ? 'active' : ''}`}># {ch.name}</li>
-            ))}
-          </ul>
-
-          <h3>Личные чаты</h3>
-          {privateChats.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', padding: '10px' }}>Нет личных чатов</div>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {privateChats.map(username => (
-                <li key={username} onClick={() => selectPrivateChat(username)} className={`chat-item ${activePrivateChat === username ? 'active' : ''}`}>👤 {username}</li>
-              ))}
-            </ul>
-          )}
-          
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            const target = (e.target as any).newChatUser.value.trim();
-            if (target && target !== user.username) {
-              if (!privateChats.includes(target)) setPrivateChats(prev => [...prev, target]);
-              selectPrivateChat(target);
-              (e.target as any).newChatUser.value = '';
-            }
-          }} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
-            <input name="newChatUser" placeholder="Ник для ЛС" style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }} />
-            <button type="submit" style={{ cursor: 'pointer', padding: '0 12px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>OK</button>
-          </form>
-        </div>
-      </div>
-
-      {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} className="mobile-backdrop" />}
-
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
-        <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
-          <div style={{ color: 'var(--text-primary)' }}>
-            {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
-          </div>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            {sendError && <div style={{ color: 'var(--error-text)', fontSize: '0.8rem' }}>{sendError}</div>}
-            <button onClick={handleClearChat} style={{ padding: '4px 8px', fontSize: '0.75rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Очистить</button>
-          </div>
-        </div>
-
-        {initError && (
-          <div style={{ padding: '1rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', textAlign: 'center', borderBottom: '1px solid var(--error-border)' }}>
-            {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: 'var(--error-text)', cursor: 'pointer' }}>Повторить</button>
-          </div>
-        )}
-
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {isHistoryLoading ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>Загрузка истории...</div>
-          ) : currentMessages.length === 0 ? (
-            <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
-          ) : (
-            currentMessages.map(msg => {
-              const isOwn = msg.username === user.username;
-              const isEditing = editingMessageId === msg.id;
-              const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
-                return (
     <div className="app-container">
       <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mobile-menu-btn">☰</button>
 
@@ -733,4 +576,4 @@ export default function App() {
       </div>
     </div>
   );
-}            
+}
