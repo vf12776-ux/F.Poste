@@ -33,7 +33,7 @@ export default function App() {
   const [privateMessages, setPrivateMessages] = useState<Record<string, Message[]>>({});
 
   const [inputText, setInputText] = useState('');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // Для мобильного UI
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -67,10 +67,9 @@ export default function App() {
     
     setIsLoading(true);
     try {
-      // Используем функцию из api.ts
       const data = await login(usernameInput.trim(), usernameInput.trim());
       if (data.token) {
-        setToken(data.token); // Правильно сохраняем токен через api.ts
+        setToken(data.token);
         setUser({ username: data.username || usernameInput.trim(), display_name: data.displayName });
         await loadInitialData();
       }
@@ -93,7 +92,6 @@ export default function App() {
       const chs = await listChannels();
       setChannels(chs);
       
-      // Если каналов нет, ждем. Если есть и ничего не выбрано - выбираем general
       if (chs.length > 0 && !activeChannelId && !activePrivateChat) {
         const general = chs.find((c: Channel) => c.name === 'general') || chs[0];
         setActiveChannelId(general.id);
@@ -129,7 +127,7 @@ export default function App() {
   const selectChannel = async (channelId: string) => {
     setActiveChannelId(channelId);
     setActivePrivateChat(null);
-    setIsSidebarOpen(false); // Закрываем сайдбар на мобильном
+    setIsSidebarOpen(false);
     setInputText('');
     await loadChannelMessages(channelId);
   };
@@ -137,16 +135,16 @@ export default function App() {
   const selectPrivateChat = async (username: string) => {
     setActivePrivateChat(username);
     setActiveChannelId(null);
-    setIsSidebarOpen(false); // Закрываем сайдбар на мобильном
+    setIsSidebarOpen(false);
     setInputText('');
     if (!privateMessages[username]) {
       await loadPrivateMessages(username);
     }
   };
 
-  // --- Отправка сообщений (Оптимистичное обновление) ---
+  // --- Отправка сообщений ---
   const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault(); // Критично: предотвращает перезагрузку страницы
+    e.preventDefault();
     if (!inputText.trim() || !user) return;
 
     const tempId = `temp-${Date.now()}`;
@@ -158,21 +156,18 @@ export default function App() {
     };
 
     const textToSend = inputText.trim();
-    setInputText(''); // Очищаем поле сразу
+    setInputText('');
 
     if (activeChannelId) {
-      // 1. Оптимистично добавляем в UI
       setChannelMessages(prev => [...prev, newMessage]);
       try {
-        // Порядок аргументов: text, username, channelId
         await sendMessage(textToSend, user.username, activeChannelId);
       } catch (err) {
         alert('Ошибка отправки');
-        setChannelMessages(prev => prev.filter(m => m.id !== tempId)); // Откат при ошибке
-        setInputText(textToSend); // Возвращаем текст
+        setChannelMessages(prev => prev.filter(m => m.id !== tempId));
+        setInputText(textToSend);
       }
     } else if (activePrivateChat) {
-      // 1. Оптимистично добавляем в UI
       setPrivateMessages(prev => ({
         ...prev,
         [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
@@ -220,7 +215,6 @@ export default function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden' }}>
       
-      {/* Мобильная кнопка меню */}
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
         style={{ position: 'fixed', top: '10px', left: '10px', zIndex: 100, padding: '8px', display: 'none' }}
@@ -229,7 +223,6 @@ export default function App() {
         ☰
       </button>
 
-      {/* Сайдбар */}
       <div style={{
         width: '280px',
         borderRight: '1px solid #ddd',
@@ -287,7 +280,6 @@ export default function App() {
             ))}
           </ul>
           
-          {/* Форма начала нового ЛС */}
           <form onSubmit={(e) => {
             e.preventDefault();
             const target = (e.target as any).newChatUser.value.trim();
@@ -303,7 +295,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Затемнение фона для мобильного меню */}
       {isSidebarOpen && (
         <div 
           onClick={() => setIsSidebarOpen(false)}
@@ -312,25 +303,26 @@ export default function App() {
         />
       )}
 
-      {/* Основная область чата */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
-        {/* Заголовок чата */}
         <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>
           {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
         </div>
 
-        {/* Список сообщений */}
+        {/* СПИСОК СООБЩЕНИЙ С ЗАЩИТОЙ ОТ NULL */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          {currentMessages.length === 0 && <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>}
-          {currentMessages.map(msg => (
+          {(!currentMessages || currentMessages.length === 0) && (
+            <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
+          )}
+          
+          {(currentMessages || []).map(msg => (
             <div key={msg.id} style={{ 
-              alignSelf: msg.username === user.username ? 'flex-end' : 'flex-start',
-              backgroundColor: msg.username === user.username ? '#d1fae5' : '#f3f4f6',
+              alignSelf: msg.username === user?.username ? 'flex-end' : 'flex-start',
+              backgroundColor: msg.username === user?.username ? '#d1fae5' : '#f3f4f6',
               padding: '0.5rem 1rem',
               borderRadius: '12px',
               maxWidth: '70%'
             }}>
-              {msg.username !== user.username && <div style={{ fontSize: '0.75rem', color: '666', marginBottom: '2px' }}>{msg.username}</div>}
+              {msg.username !== user?.username && <div style={{ fontSize: '0.75rem', color: '#666', marginBottom: '2px' }}>{msg.username}</div>}
               <div>{msg.text}</div>
               {msg.file_url && (
                 <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
@@ -345,7 +337,6 @@ export default function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Форма ввода */}
         <form onSubmit={handleSendMessage} style={{ padding: '1rem', borderTop: '1px solid #ddd', display: 'flex', gap: '0.5rem' }}>
           <input
             type="text"
@@ -360,7 +351,6 @@ export default function App() {
         </form>
       </div>
 
-      {/* Глобальные стили для адаптивности */}
       <style>{`
         @media (min-width: 769px) {
           .sidebar-desktop { position: relative !important; transform: none !important; }
