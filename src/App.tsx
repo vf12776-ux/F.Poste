@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   login, getMe, getToken, setToken, clearToken, 
-  listChannels, loadHistory, sendMessage, 
-  listPrivateChats, loadPrivateHistory, sendPrivateMessage 
+  listChannels, loadHistory, sendMessage, editMessage, deleteMessage, clearChannel,
+  listPrivateChats, loadPrivateHistory, sendPrivateMessage, editPrivateMessage, 
+  deletePrivateMessage, clearPrivateChat
 } from './api';
 
 interface User { username: string; display_name?: string }
@@ -14,7 +15,8 @@ interface Message {
   file_url?: string; 
   file_name?: string; 
   timestamp: number; 
-  channel_id?: string 
+  channel_id?: string;
+  edited?: boolean;
 }
 
 export default function App() {
@@ -35,6 +37,10 @@ export default function App() {
   const [inputText, setInputText] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+
+  // 🔥 Состояния для редактирования
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -142,6 +148,7 @@ export default function App() {
     setIsSidebarOpen(false);
     setInputText('');
     setSendError(null);
+    setEditingMessageId(null);
     await loadChannelMessages(channelId);
   };
 
@@ -151,6 +158,7 @@ export default function App() {
     setIsSidebarOpen(false);
     setInputText('');
     setSendError(null);
+    setEditingMessageId(null);
     if (!privateMessages[username]) {
       await loadPrivateMessages(username);
     }
@@ -202,6 +210,80 @@ export default function App() {
     }
   };
 
+  // 🔥 Редактирование сообщения
+  const startEditing = (msg: Message) => {
+    setEditingMessageId(msg.id);
+    setEditingText(msg.text);
+  };
+
+  const cancelEditing = () => {
+    setEditingMessageId(null);
+    setEditingText('');
+  };
+
+  const saveEdit = async () => {
+    if (!editingMessageId || !editingText.trim()) return;
+
+    try {
+      if (activeChannelId) {
+        await editMessage(editingMessageId, editingText.trim());
+        setChannelMessages(prev => prev.map(m => 
+          m.id === editingMessageId ? { ...m, text: editingText.trim(), edited: true } : m
+        ));
+      } else if (activePrivateChat) {
+        await editPrivateMessage(editingMessageId, editingText.trim());
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: (prev[activePrivateChat] || []).map(m => 
+            m.id === editingMessageId ? { ...m, text: editingText.trim(), edited: true } : m
+          )
+        }));
+      }
+      cancelEditing();
+    } catch (err: any) {
+      alert("Ошибка редактирования: " + err.message);
+    }
+  };
+
+  // 🔥 Удаление сообщения
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!confirm("Удалить это сообщение?")) return;
+
+    try {
+      if (activeChannelId) {
+        await deleteMessage(msgId);
+        setChannelMessages(prev => prev.filter(m => m.id !== msgId));
+      } else if (activePrivateChat) {
+        await deletePrivateMessage(msgId);
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== msgId)
+        }));
+      }
+    } catch (err: any) {
+      alert("Ошибка удаления: " + err.message);
+    }
+  };
+
+  // 🔥 Удаление всей переписки
+  const handleClearChat = async () => {
+    if (!confirm("Удалить ВСЮ переписку? Это действие нельзя отменить.")) return;
+
+    try {
+      if (activeChannelId) {
+        await clearChannel(activeChannelId);
+        setChannelMessages([]);
+      } else if (activePrivateChat) {
+        await clearPrivateChat(activePrivateChat);
+        setPrivateMessages(prev => ({ ...prev, [activePrivateChat]: [] }));
+        setPrivateChats(prev => prev.filter(u => u !== activePrivateChat));
+        setActivePrivateChat(null);
+      }
+    } catch (err: any) {
+      alert("Ошибка очистки: " + err.message);
+    }
+  };
+
   if (!user) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontFamily: 'sans-serif', padding: '20px' }}>
@@ -232,7 +314,6 @@ export default function App() {
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'sans-serif', overflow: 'hidden' }}>
       
-      {/* 🔥 Кнопка меню: маленькая, без текста, не перекрывает заголовок */}
       <button 
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
         style={{ position: 'fixed', top: '12px', left: '12px', zIndex: 100, padding: '6px 10px', display: 'none', backgroundColor: 'white', border: '1px solid #ddd', borderRadius: '4px', fontSize: '18px', lineHeight: 1 }}
@@ -328,12 +409,21 @@ export default function App() {
       )}
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
-        {/* 🔥 Заголовок чата: на мобильном добавлен отступ сверху, чтобы не прятался под кнопкой */}
-        <div style={{ padding: '1rem', paddingTop: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
+        <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
           <div>
             {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
           </div>
-          {sendError && <div style={{ color: 'red', fontSize: '0.8rem', marginLeft: '10px' }}>{sendError}</div>}
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {sendError && <div style={{ color: 'red', fontSize: '0.8rem' }}>{sendError}</div>}
+            {/* 🔥 Кнопка очистки чата */}
+            <button 
+              onClick={handleClearChat}
+              style={{ padding: '4px 8px', fontSize: '0.75rem', backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px', cursor: 'pointer' }}
+              title="Удалить всю переписку"
+            >
+              🗑️ Очистить
+            </button>
+          </div>
         </div>
 
         {initError && (
@@ -350,8 +440,8 @@ export default function App() {
           ) : (
             currentMessages.map(msg => {
               const isOwn = msg.username === user.username;
+              const isEditing = editingMessageId === msg.id;
               
-              // 🔥 В личных чатах добавляем явные метки "Вы" и "Собеседник"
               const label = isPrivateChat 
                 ? (isOwn ? 'Вы' : activePrivateChat)
                 : msg.username;
@@ -362,9 +452,9 @@ export default function App() {
                   backgroundColor: isOwn ? '#d1fae5' : '#f3f4f6',
                   padding: '0.5rem 1rem',
                   borderRadius: '12px',
-                  maxWidth: '80%'
+                  maxWidth: '80%',
+                  position: 'relative'
                 }}>
-                  {/* 🔥 Метка отправителя: жирная, с цветом */}
                   <div style={{ 
                     fontSize: '0.75rem', 
                     color: isOwn ? '#059669' : '#6b7280', 
@@ -373,15 +463,50 @@ export default function App() {
                   }}>
                     {label}
                   </div>
-                  <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>
-                  {msg.file_url && (
-                    <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
-                      📎 {msg.file_name || 'Файл'}
-                    </a>
+                  
+                  {isEditing ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <textarea
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', resize: 'vertical', minHeight: '60px' }}
+                        autoFocus
+                      />
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button onClick={cancelEditing} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: '#f3f4f6', border: '1px solid #d1d5db', borderRadius: '4px', cursor: 'pointer' }}>
+                          Отмена
+                        </button>
+                        <button onClick={saveEdit} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                          Сохранить
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ wordBreak: 'break-word' }}>{msg.text}</div>
+                      {msg.file_url && (
+                        <a href={msg.file_url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: '4px', color: '#2563eb', fontSize: '0.85rem' }}>
+                          📎 {msg.file_name || 'Файл'}
+                        </a>
+                      )}
+                      <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>
+                          {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}
+                        </span>
+                        {isOwn && (
+                          <div style={{ display: 'flex', gap: '4px', marginLeft: '8px' }}>
+                            <button onClick={() => startEditing(msg)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: '#6b7280' }} title="Редактировать">
+                              ✏️
+                            </button>
+                            <button onClick={() => handleDeleteMessage(msg.id)} style={{ padding: '2px 6px', fontSize: '0.7rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer', color: '#991b1b' }} title="Удалить">
+                              🗑️
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )}
-                  <div style={{ fontSize: '0.7rem', color: '#999', textAlign: 'right', marginTop: '4px' }}>
-                    {new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </div>
                 </div>
               );
             })
@@ -413,7 +538,6 @@ export default function App() {
         @media (max-width: 768px) {
           .sidebar-desktop { width: 85% !important; max-width: 320px !important; box-shadow: 2px 0 8px rgba(0,0,0,0.2); }
           .mobile-menu-btn { display: block !important; }
-          /* 🔥 На мобильном добавляем отступ сверху к заголовку, чтобы не перекрывался кнопкой */
           .chat-header { padding-top: 50px !important; }
         }
       `}</style>
