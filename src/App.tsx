@@ -90,16 +90,18 @@ export default function App() {
   const loadInitialData = async () => {
     try {
       const chs = await listChannels();
-      setChannels(chs);
+      setChannels(chs || []); // Дополнительная защита
       
-      if (chs.length > 0 && !activeChannelId && !activePrivateChat) {
-        const general = chs.find((c: Channel) => c.name === 'general') || chs[0];
-        setActiveChannelId(general.id);
-        await loadChannelMessages(general.id);
+      if ((chs || []).length > 0 && !activeChannelId && !activePrivateChat) {
+        const general = (chs || []).find((c: Channel) => c.name === 'general') || (chs || [])[0];
+        if (general) {
+          setActiveChannelId(general.id);
+          await loadChannelMessages(general.id);
+        }
       }
       
       const pChats = await listPrivateChats();
-      setPrivateChats(pChats);
+      setPrivateChats(pChats || []); // Дополнительная защита
     } catch (err) {
       console.error('Ошибка загрузки данных:', err);
     }
@@ -108,7 +110,7 @@ export default function App() {
   const loadChannelMessages = async (channelId: string) => {
     try {
       const msgs = await loadHistory(channelId);
-      setChannelMessages(msgs);
+      setChannelMessages(msgs || []);
     } catch (err) {
       console.error('Ошибка загрузки истории канала:', err);
     }
@@ -117,7 +119,7 @@ export default function App() {
   const loadPrivateMessages = async (targetUsername: string) => {
     try {
       const msgs = await loadPrivateHistory(targetUsername);
-      setPrivateMessages(prev => ({ ...prev, [targetUsername]: msgs }));
+      setPrivateMessages(prev => ({ ...prev, [targetUsername]: msgs || [] }));
     } catch (err) {
       console.error('Ошибка загрузки истории ЛС:', err);
     }
@@ -246,7 +248,8 @@ export default function App() {
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem' }}>
           <h3 style={{ marginTop: 0 }}>Каналы</h3>
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {channels.map(ch => (
+            {/* ЗАЩИТА: (channels || []) */}
+            {(channels || []).map(ch => (
               <li 
                 key={ch.id} 
                 onClick={() => selectChannel(ch.id)}
@@ -264,7 +267,8 @@ export default function App() {
 
           <h3>Личные чаты</h3>
           <ul style={{ listStyle: 'none', padding: 0 }}>
-            {privateChats.map(username => (
+            {/* ЗАЩИТА: (privateChats || []) */}
+            {(privateChats || []).map(username => (
               <li 
                 key={username} 
                 onClick={() => selectPrivateChat(username)}
@@ -284,7 +288,7 @@ export default function App() {
             e.preventDefault();
             const target = (e.target as any).newChatUser.value.trim();
             if (target && target !== user.username) {
-              if (!privateChats.includes(target)) setPrivateChats(prev => [...prev, target]);
+              if (!(privateChats || []).includes(target)) setPrivateChats(prev => [...(prev || []), target]);
               selectPrivateChat(target);
               (e.target as any).newChatUser.value = '';
             }
@@ -305,15 +309,15 @@ export default function App() {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
         <div style={{ padding: '1rem', borderBottom: '1px solid #ddd', fontWeight: 'bold' }}>
-          {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
+          {activeChannelId ? `# ${(channels || []).find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
         </div>
 
-        {/* СПИСОК СООБЩЕНИЙ С ЗАЩИТОЙ ОТ NULL */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {(!currentMessages || currentMessages.length === 0) && (
             <div style={{ color: '#888', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
           )}
           
+          {/* ЗАЩИТА: (currentMessages || []) */}
           {(currentMessages || []).map(msg => (
             <div key={msg.id} style={{ 
               alignSelf: msg.username === user?.username ? 'flex-end' : 'flex-start',
