@@ -507,6 +507,85 @@ export default function App() {
               const isEditing = editingMessageId === msg.id;
               const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
               
+                return (
+    <div className="app-container">
+      <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mobile-menu-btn">☰</button>
+
+      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}> 
+        <div className="sidebar-header">
+          <span>Привет, <b>{user.username}</b></span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button onClick={() => setIsDarkMode(!isDarkMode)} style={{ cursor: 'pointer', background: 'none', border: 'none', fontSize: '1.2rem' }} title={isDarkMode ? 'Светлая тема' : 'Темная тема'}>
+              {isDarkMode ? '☀️' : '🌙'}
+            </button>
+            <button onClick={handleLogout} style={{ cursor: 'pointer', background: 'none', border: 'none', color: 'red', fontSize: '0.9rem' }}>Выйти</button>
+          </div>
+        </div>
+
+        <div className="sidebar-content">
+          <h3>Каналы</h3>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {channels.map(ch => (
+              <li key={ch.id} onClick={() => selectChannel(ch.id)} className={`channel-item ${activeChannelId === ch.id ? 'active' : ''}`}># {ch.name}</li>
+            ))}
+          </ul>
+
+          <h3>Личные чаты</h3>
+          {privateChats.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', padding: '10px' }}>Нет личных чатов</div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {privateChats.map(username => (
+                <li key={username} onClick={() => selectPrivateChat(username)} className={`chat-item ${activePrivateChat === username ? 'active' : ''}`}>👤 {username}</li>
+              ))}
+            </ul>
+          )}
+          
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const target = (e.target as any).newChatUser.value.trim();
+            if (target && target !== user.username) {
+              if (!privateChats.includes(target)) setPrivateChats(prev => [...prev, target]);
+              selectPrivateChat(target);
+              (e.target as any).newChatUser.value = '';
+            }
+          }} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+            <input name="newChatUser" placeholder="Ник для ЛС" style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }} />
+            <button type="submit" style={{ cursor: 'pointer', padding: '0 12px', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>OK</button>
+          </form>
+        </div>
+      </div>
+
+      {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} className="mobile-backdrop" />}
+
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', marginLeft: '0' }} className="main-area">
+        <div style={{ padding: '1rem', borderBottom: '1px solid var(--border)', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} className="chat-header">
+          <div style={{ color: 'var(--text-primary)' }}>
+            {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {sendError && <div style={{ color: 'var(--error-text)', fontSize: '0.8rem' }}>{sendError}</div>}
+            <button onClick={handleClearChat} style={{ padding: '4px 8px', fontSize: '0.75rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', borderRadius: '4px', cursor: 'pointer' }}>🗑️ Очистить</button>
+          </div>
+        </div>
+
+        {initError && (
+          <div style={{ padding: '1rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', textAlign: 'center', borderBottom: '1px solid var(--error-border)' }}>
+            {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: 'var(--error-text)', cursor: 'pointer' }}>Повторить</button>
+          </div>
+        )}
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          {isHistoryLoading ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>Загрузка истории...</div>
+          ) : currentMessages.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
+          ) : (
+            currentMessages.map(msg => {
+              const isOwn = msg.username === user.username;
+              const isEditing = editingMessageId === msg.id;
+              const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
+              
               return (
                 <div key={msg.id} style={{ alignSelf: isOwn ? 'flex-end' : 'flex-start', backgroundColor: isOwn ? 'var(--bg-own-message)' : 'var(--bg-other-message)', padding: '0.5rem 1rem', borderRadius: '12px', maxWidth: '80%', position: 'relative' }}>
                   <div style={{ fontSize: '0.75rem', color: isOwn ? '#10b981' : 'var(--text-secondary)', marginBottom: '4px', fontWeight: 'bold' }}>{label}</div>
@@ -524,11 +603,11 @@ export default function App() {
                       {msg.text && <div style={{ wordBreak: 'break-word', color: 'var(--text-primary)' }}>{msg.text}</div>}
                       {msg.fileUrl && msg.fileName && (
                         <div style={{ marginTop: '8px' }}>
-  {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => window.open(msg.fileUrl, '_blank')} />}
-  {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} style={{ width: '100%', maxWidth: '300px' }} />}
-  {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />}
-  {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: 'var(--highlight)', borderRadius: '6px', color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem' }}>📎 {msg.fileName}</a>}
-</div>
+                          {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px', cursor: 'pointer' }} onClick={() => window.open(msg.fileUrl, '_blank')} />}
+                          {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} style={{ width: '100%', maxWidth: '300px' }} />}
+                          {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} style={{ maxWidth: '100%', maxHeight: '300px', borderRadius: '8px' }} />}
+                          {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '8px 12px', backgroundColor: 'var(--highlight)', borderRadius: '6px', color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem' }}>📎 {msg.fileName}</a>}
+                        </div>
                       )}
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', marginTop: '4px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
