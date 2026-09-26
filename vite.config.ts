@@ -18,9 +18,21 @@ export default defineConfig({
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' }
         ]
       },
-      workbox: {
-        // Кэшируем только статические ассеты с хэшами
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+            workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,svg,woff2}'], // Убрали png из кэша!
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.destination === 'image',
+            handler: 'NetworkFirst', // Сначала сеть, потом кэш
+            options: {
+              cacheName: 'images-cache',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 * 24 // 1 день
+              }
+            }
+          }
+        ],
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true
