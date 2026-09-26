@@ -587,41 +587,41 @@ export default function App() {
               const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
               
               return (
-                <div key={msg.id} className={`message ${isOwn ? 'own' : 'other'}`}>
-  <div className="message-author">{label}</div>
-  
-  {isEditing ? (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', resize: 'vertical', minHeight: '60px' }} autoFocus />
-      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-        <button onClick={cancelEditing} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: 'var(--bg-other-message)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-primary)' }}>Отмена</button>
-        <button onClick={saveEdit} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Сохранить</button>
-      </div>
-    </div>
-  ) : (
-    <>
-      {msg.text && <div className="message-text">{msg.text}</div>}
-      {msg.fileUrl && msg.fileName && (
-        <div className="message-attachment">
-          {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} onClick={() => window.open(msg.fileUrl, '_blank')} />}
-          {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} />}
-          {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} />}
-          {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">📎 {msg.fileName}</a>}
+  <div key={msg.id} className={`message ${isOwn ? 'own' : 'other'}`}>
+    <div className="message-author">{label}</div>
+    
+    {isEditing ? (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', resize: 'vertical', minHeight: '60px' }} autoFocus />
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={cancelEditing} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: 'var(--bg-other-message)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-primary)' }}>Отмена</button>
+          <button onClick={saveEdit} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Сохранить</button>
         </div>
-      )}
-      <div className="message-meta">
-        <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
-        {isOwn && (
-          <div className="message-actions">
-            {!msg.fileUrl && <button onClick={() => startEditing(msg)} title="Редактировать">✏️</button>}
-            <button onClick={() => handleDeleteMessage(msg.id)} title="Удалить">🗑️</button>
+      </div>
+    ) : (
+      <>
+        {msg.text && <div className="message-text">{msg.text}</div>}
+        {msg.fileUrl && msg.fileName && (
+          <div className="message-attachment">
+            {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} onClick={() => window.open(msg.fileUrl, '_blank')} />}
+            {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} />}
+            {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} />}
+            {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">📎 {msg.fileName}</a>}
           </div>
         )}
-      </div>
-    </>
-  )}
-</div>
-              );
+        <div className="message-meta">
+          <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
+          {isOwn && (
+            <div className="message-actions">
+              {!msg.fileUrl && <button onClick={() => startEditing(msg)} title="Редактировать">✏️</button>}
+              <button onClick={() => handleDeleteMessage(msg.id)} title="Удалить">🗑️</button>
+            </div>
+          )}
+        </div>
+      </>
+    )}
+  </div>
+);
             })
           )}
           <div ref={messagesEndRef} />
