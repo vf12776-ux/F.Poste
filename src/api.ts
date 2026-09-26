@@ -55,8 +55,7 @@ export async function sendMessage(text: string, username: string, channelId?: st
 export async function loadHistory(channelId?: string) {
   const query = channelId ? `?channel=${channelId}` : '';
   const data = await apiRequest('/api/messages' + query);
-  // ЗАЩИТА: Если сервер вернул null, возвращаем пустой массив
-  return Array.isArray(data) ? data : []; 
+  return Array.isArray(data) ? data : []; // ЗАЩИТА
 }
 
 export async function deleteMessage(id: string, username: string) {
@@ -74,7 +73,8 @@ export async function clearChat(username: string) {
 }
 
 export async function listChannels() {
-  return apiRequest('/api/channels');
+  const data = await apiRequest('/api/channels');
+  return Array.isArray(data) ? data : []; // ЗАЩИТА: гарантируем массив
 }
 
 export async function createChannel(name: string) {
@@ -93,12 +93,12 @@ export async function sendPrivateMessage(to: string, text: string) {
 
 export async function loadPrivateHistory(withUser: string) {
   const data = await apiRequest(`/api/private/history?with=${withUser}`);
-  // ЗАЩИТА: Если сервер вернул null, возвращаем пустой массив
-  return Array.isArray(data) ? data : []; 
+  return Array.isArray(data) ? data : []; // ЗАЩИТА
 }
 
 export async function listPrivateChats() {
-  return apiRequest('/api/private/chats');
+  const data = await apiRequest('/api/private/chats');
+  return Array.isArray(data) ? data : []; // ЗАЩИТА: гарантируем массив
 }
 
 export async function uploadFile(file: File) {
