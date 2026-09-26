@@ -203,7 +203,6 @@ func sendMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// 🔥 НОВОЕ: Редактирование сообщения
 func editMessageHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Username")
 	var req struct {
@@ -215,7 +214,6 @@ func editMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем, что сообщение принадлежит пользователю
 	var msgUsername string
 	err := db.QueryRow("SELECT username FROM messages WHERE id = $1", req.ID).Scan(&msgUsername)
 	if err != nil || msgUsername != username {
@@ -241,7 +239,6 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем, что сообщение принадлежит пользователю
 	var msgUsername string
 	err := db.QueryRow("SELECT username FROM messages WHERE id = $1", req.ID).Scan(&msgUsername)
 	if err != nil || msgUsername != username {
@@ -257,7 +254,6 @@ func deleteMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// 🔥 НОВОЕ: Удаление всех сообщений в канале
 func clearChannelHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Username")
 	var req struct {
@@ -268,7 +264,6 @@ func clearChannelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Удаляем только свои сообщения из канала
 	_, err := db.Exec("DELETE FROM messages WHERE channel_id = $1 AND username = $2", req.ChannelID, username)
 	if err != nil {
 		http.Error(w, "Failed to clear", http.StatusInternalServerError)
@@ -277,8 +272,8 @@ func clearChannelHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// 🔥 ИСПРАВЛЕНО: удалена неиспользуемая переменная username
 func clearChatHandler(w http.ResponseWriter, r *http.Request) {
-	username := r.Header.Get("X-Username")
 	var req struct {
 		Username string `json:"username"`
 	}
@@ -422,7 +417,6 @@ func loadPrivateHistory(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(messages)
 }
 
-// 🔥 НОВОЕ: Редактирование личного сообщения
 func editPrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Username")
 	var req struct {
@@ -434,7 +428,6 @@ func editPrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем, что сообщение принадлежит пользователю
 	var fromUsername string
 	err := db.QueryRow("SELECT from_username FROM private_messages WHERE id = $1", req.ID).Scan(&fromUsername)
 	if err != nil || fromUsername != username {
@@ -450,7 +443,6 @@ func editPrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// 🔥 НОВОЕ: Удаление личного сообщения
 func deletePrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Username")
 	var req struct {
@@ -461,7 +453,6 @@ func deletePrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем, что сообщение принадлежит пользователю
 	var fromUsername string
 	err := db.QueryRow("SELECT from_username FROM private_messages WHERE id = $1", req.ID).Scan(&fromUsername)
 	if err != nil || fromUsername != username {
@@ -477,7 +468,6 @@ func deletePrivateMessageHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// 🔥 НОВОЕ: Удаление всей переписки с пользователем
 func clearPrivateChatHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.Header.Get("X-Username")
 	var req struct {
@@ -489,7 +479,6 @@ func clearPrivateChatHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	req.WithUser = strings.ToLower(strings.TrimSpace(req.WithUser))
 
-	// Удаляем все сообщения между двумя пользователями
 	_, err := db.Exec(`DELETE FROM private_messages 
 	                   WHERE (from_username = $1 AND to_username = $2) 
 	                      OR (from_username = $2 AND to_username = $1)`, username, req.WithUser)
@@ -581,21 +570,20 @@ func main() {
 
 	os.MkdirAll("./uploads", 0755)
 
-	// API роуты
 	http.HandleFunc("/api/login", loginHandler)
 	http.HandleFunc("/api/me", requireAuth(meHandler))
 	http.HandleFunc("/api/messages", requireAuth(loadHistory))
 	http.HandleFunc("/api/send", requireAuth(sendMessageHandler))
-	http.HandleFunc("/api/edit", requireAuth(editMessageHandler))           // 🔥 НОВОЕ
+	http.HandleFunc("/api/edit", requireAuth(editMessageHandler))
 	http.HandleFunc("/api/delete", requireAuth(deleteMessageHandler))
 	http.HandleFunc("/api/clear", requireAuth(clearChatHandler))
-	http.HandleFunc("/api/clear-channel", requireAuth(clearChannelHandler)) // 🔥 НОВОЕ
+	http.HandleFunc("/api/clear-channel", requireAuth(clearChannelHandler))
 	http.HandleFunc("/api/channels", listChannels)
 	http.HandleFunc("/api/channels/create", requireAuth(createChannel))
 	http.HandleFunc("/api/private/send", requireAuth(sendPrivateMessage))
-	http.HandleFunc("/api/private/edit", requireAuth(editPrivateMessageHandler))   // 🔥 НОВОЕ
-	http.HandleFunc("/api/private/delete", requireAuth(deletePrivateMessageHandler)) // 🔥 НОВОЕ
-	http.HandleFunc("/api/private/clear", requireAuth(clearPrivateChatHandler))    // 🔥 НОВОЕ
+	http.HandleFunc("/api/private/edit", requireAuth(editPrivateMessageHandler))
+	http.HandleFunc("/api/private/delete", requireAuth(deletePrivateMessageHandler))
+	http.HandleFunc("/api/private/clear", requireAuth(clearPrivateChatHandler))
 	http.HandleFunc("/api/private/history", requireAuth(loadPrivateHistory))
 	http.HandleFunc("/api/private/chats", requireAuth(listPrivateChats))
 	http.HandleFunc("/upload", uploadHandler)
@@ -606,7 +594,6 @@ func main() {
 	http.HandleFunc("/api/subscribe", subscribeHandler)
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
 
-	// Раздача статики (фронтенд)
 	fs := http.FileServer(http.Dir("./dist"))
 	http.Handle("/", fs)
 
