@@ -204,12 +204,12 @@ export default function App() {
       setIsUploading(false);
     }
 
-    const newMessage: Message = {
+        const newMessage: Message = {
       id: tempId,
       username: user.username,
       text: textToSend,
-      file_url: file_url || undefined,
-      file_name: file_name || undefined,
+      fileUrl: file_url || undefined,
+      fileName: file_name || undefined,
       timestamp: Math.floor(Date.now() / 1000),
     };
 
@@ -253,7 +253,7 @@ export default function App() {
     try {
       const uploaded = await uploadFile(file);
       const tempId = `temp-${Date.now()}`;
-      const newMessage: Message = {
+            const newMessage: Message = {
         id: tempId,
         username: user.username,
         text: '',
