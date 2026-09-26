@@ -1,7 +1,7 @@
 const API_BASE = '';
 
 export function setToken(token: string) {
-  localStorage.setItem('fposte_token', token); // Используем единый ключ
+  localStorage.setItem('fposte_token', token);
 }
 
 export function getToken(): string | null {
@@ -45,7 +45,6 @@ export async function getMe() {
   return apiRequest('/api/me');
 }
 
-// Обратите внимание на порядок аргументов: text, username, channelId
 export async function sendMessage(text: string, username: string, channelId?: string) {
   return apiRequest('/api/send', {
     method: 'POST',
@@ -55,7 +54,9 @@ export async function sendMessage(text: string, username: string, channelId?: st
 
 export async function loadHistory(channelId?: string) {
   const query = channelId ? `?channel=${channelId}` : '';
-  return apiRequest('/api/messages' + query);
+  const data = await apiRequest('/api/messages' + query);
+  // ЗАЩИТА: Если сервер вернул null, возвращаем пустой массив
+  return Array.isArray(data) ? data : []; 
 }
 
 export async function deleteMessage(id: string, username: string) {
@@ -91,14 +92,15 @@ export async function sendPrivateMessage(to: string, text: string) {
 }
 
 export async function loadPrivateHistory(withUser: string) {
-  return apiRequest(`/api/private/history?with=${withUser}`);
+  const data = await apiRequest(`/api/private/history?with=${withUser}`);
+  // ЗАЩИТА: Если сервер вернул null, возвращаем пустой массив
+  return Array.isArray(data) ? data : []; 
 }
 
 export async function listPrivateChats() {
   return apiRequest('/api/private/chats');
 }
 
-// Добавлено для полноты картины (если понадобится загрузка файлов)
 export async function uploadFile(file: File) {
   const formData = new FormData();
   formData.append('file', file);
