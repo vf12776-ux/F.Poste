@@ -411,12 +411,19 @@ export default function App() {
     return 'other';
   };
 
-  if (!user) {
+    if (!user) {
     return (
-      <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', padding: '20px' }}>
-        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '2rem', border: '1px solid var(--border)', borderRadius: '8px', width: '100%', maxWidth: '300px', backgroundColor: 'var(--bg-secondary)' }}>
+      <div className="login-container">
+        <form onSubmit={handleLogin} className="login-form">
           <h2 style={{ textAlign: 'center', color: 'var(--text-primary)' }}>Вход в F.Poste</h2>
-          <input type="text" placeholder="Ник (мин. 5 символов)" value={usernameInput} onChange={(e) => setUsernameInput(e.target.value)} className="input-field" disabled={isLoading} />
+          <input 
+            type="text" 
+            placeholder="Ник (мин. 5 символов)" 
+            value={usernameInput} 
+            onChange={(e) => setUsernameInput(e.target.value)} 
+            className="input-field" 
+            disabled={isLoading} 
+          />
           <button type="submit" disabled={isLoading} className="btn btn-primary">
             {isLoading ? 'Вход...' : 'Войти'}
           </button>
