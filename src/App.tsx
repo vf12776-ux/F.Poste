@@ -585,124 +585,152 @@ export default function App() {
               const isOwn = msg.username === user.username;
               const isEditing = editingMessageId === msg.id;
               const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
-              
-              return (
-  <div key={msg.id} className={`message ${isOwn ? 'own' : 'other'}`}>
-    <div className="message-author">{label}</div>
-    
-    {isEditing ? (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid var(--input-border)', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)', resize: 'vertical', minHeight: '60px' }} autoFocus />
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <button onClick={cancelEditing} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: 'var(--bg-other-message)', border: '1px solid var(--border)', borderRadius: '4px', cursor: 'pointer', color: 'var(--text-primary)' }}>Отмена</button>
-          <button onClick={saveEdit} style={{ padding: '4px 12px', fontSize: '0.85rem', backgroundColor: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Сохранить</button>
+                return (
+    <div className="app-container">
+      <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mobile-menu-btn">☰</button>
+
+      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}> 
+        <div className="sidebar-header">
+          <span>Привет, <b>{user.username}</b></span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button onClick={() => setIsDarkMode(!isDarkMode)} className="btn-icon" title={isDarkMode ? 'Светлая тема' : 'Темная тема'}>
+              {isDarkMode ? '☀️' : '🌙'}
+            </button>
+            <button onClick={handleLogout} className="btn btn-danger" style={{ fontSize: '0.9rem' }}>Выйти</button>
+          </div>
+        </div>
+
+        <div className="sidebar-content">
+          <h3>Каналы</h3>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+            {channels.map(ch => (
+              <li key={ch.id} onClick={() => selectChannel(ch.id)} className={`channel-item ${activeChannelId === ch.id ? 'active' : ''}`}># {ch.name}</li>
+            ))}
+          </ul>
+
+          <h3>Личные чаты</h3>
+          {privateChats.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', padding: '10px' }}>Нет личных чатов</div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {privateChats.map(username => (
+                <li key={username} onClick={() => selectPrivateChat(username)} className={`chat-item ${activePrivateChat === username ? 'active' : ''}`}>👤 {username}</li>
+              ))}
+            </ul>
+          )}
+          
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const target = (e.target as any).newChatUser.value.trim();
+            if (target && target !== user.username) {
+              if (!privateChats.includes(target)) setPrivateChats(prev => [...prev, target]);
+              selectPrivateChat(target);
+              (e.target as any).newChatUser.value = '';
+            }
+          }} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+            <input name="newChatUser" placeholder="Ник для ЛС" className="input-field" />
+            <button type="submit" className="btn" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>OK</button>
+          </form>
         </div>
       </div>
-    ) : (
-      <>
-        {msg.text && <div className="message-text">{msg.text}</div>}
-        {msg.fileUrl && msg.fileName && (
-          <div className="message-attachment">
-            {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} onClick={() => window.open(msg.fileUrl, '_blank')} />}
-            {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} />}
-            {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} />}
-            {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">📎 {msg.fileName}</a>}
+
+      {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} className="mobile-backdrop" />}
+
+      <div className="main-area">
+        <div className="chat-header">
+          <div>
+            {activeChannelId ? `# ${channels.find(c => c.id === activeChannelId)?.name}` : `👤 ${activePrivateChat}`}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {sendError && <div style={{ color: 'var(--error-text)', fontSize: '0.8rem' }}>{sendError}</div>}
+            <button onClick={handleClearChat} className="btn btn-danger" style={{ fontSize: '0.75rem' }}>🗑️ Очистить</button>
+          </div>
+        </div>
+
+        {initError && (
+          <div style={{ padding: '1rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', textAlign: 'center', borderBottom: '1px solid var(--error-border)' }}>
+            {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: 'var(--error-text)', cursor: 'pointer' }}>Повторить</button>
           </div>
         )}
-        <div className="message-meta">
-          <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
-          {isOwn && (
-            <div className="message-actions">
-              {!msg.fileUrl && <button onClick={() => startEditing(msg)} title="Редактировать">✏️</button>}
-              <button onClick={() => handleDeleteMessage(msg.id)} title="Удалить">🗑️</button>
-            </div>
-          )}
-        </div>
-      </>
-    )}
-  </div>
-);
+
+        <div className="messages-container">
+          {isHistoryLoading ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>Загрузка истории...</div>
+          ) : currentMessages.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
+          ) : (
+            currentMessages.map(msg => {
+              const isOwn = msg.username === user.username;
+              const isEditing = editingMessageId === msg.id;
+              const label = isPrivateChat ? (isOwn ? 'Вы' : activePrivateChat) : msg.username;
+              
+              return (
+                <div key={msg.id} className={`message ${isOwn ? 'own' : 'other'}`}>
+                  <div className="message-author">{label}</div>
+                  
+                  {isEditing ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} className="input-field" style={{ resize: 'vertical', minHeight: '60px' }} autoFocus />
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button onClick={cancelEditing} className="btn" style={{ backgroundColor: 'var(--bg-other-message)', color: 'var(--text-primary)' }}>Отмена</button>
+                        <button onClick={saveEdit} className="btn btn-primary">Сохранить</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {msg.text && <div className="message-text">{msg.text}</div>}
+                      {msg.fileUrl && msg.fileName && (
+                        <div className="message-attachment">
+                          {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} onClick={() => window.open(msg.fileUrl, '_blank')} />}
+                          {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} />}
+                          {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} />}
+                          {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">📎 {msg.fileName}</a>}
+                        </div>
+                      )}
+                      <div className="message-meta">
+                        <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
+                        {isOwn && (
+                          <div className="message-actions">
+                            {!msg.fileUrl && <button onClick={() => startEditing(msg)} title="Редактировать">✏️</button>}
+                            <button onClick={() => handleDeleteMessage(msg.id)} title="Удалить">🗑️</button>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
             })
           )}
           <div ref={messagesEndRef} />
         </div>
 
         {(isRecording || audioBlob) && (
-          <div style={{ padding: '1rem', borderTop: '1px solid var(--border)', backgroundColor: isDarkMode ? '#78350f' : '#fef3c7', display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-primary)' }}>
+          <div className="recording-panel">
             {isRecording ? (
               <>
-                <div style={{ width: '12px', height: '12px', backgroundColor: '#ef4444', borderRadius: '50%', animation: 'pulse 1s infinite' }} />
+                <div className="recording-indicator" />
                 <span style={{ fontWeight: 'bold' }}>{formatTime(recordingTime)}</span>
-                <button onClick={cancelRecording} style={{ padding: '6px 12px', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', borderRadius: '4px', cursor: 'pointer' }}>❌ Отмена</button>
-                <button onClick={stopRecording} style={{ padding: '6px 12px', backgroundColor: 'var(--accent)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>⏹️ Стоп</button>
+                <button onClick={cancelRecording} className="btn btn-danger">❌ Отмена</button>
+                <button onClick={stopRecording} className="btn btn-primary">⏹️ Стоп</button>
               </>
             ) : audioBlob && (
               <>
                 <audio controls src={audioPreviewUrl || ''} style={{ flex: 1, maxWidth: '300px' }} />
-                <button onClick={resetAudioRecording} style={{ padding: '6px 12px', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', border: '1px solid var(--error-border)', borderRadius: '4px', cursor: 'pointer' }}>❌</button>
+                <button onClick={resetAudioRecording} className="btn btn-danger">❌</button>
               </>
             )}
           </div>
         )}
 
-        <form onSubmit={handleSendMessage} style={{ padding: '1rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <form onSubmit={handleSendMessage} className="input-area">
           <input type="file" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" />
-          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} style={{ padding: '0.5rem', fontSize: '1.2rem', backgroundColor: 'transparent', border: 'none', cursor: 'pointer' }} title="Прикрепить файл">📎</button>
-          <button type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isUploading} style={{ padding: '0.5rem', fontSize: '1.2rem', backgroundColor: isRecording ? 'var(--error-bg)' : 'transparent', border: 'none', cursor: 'pointer', borderRadius: '50%' }} title={isRecording ? 'Остановить запись' : 'Записать голосовое сообщение'}>{isRecording ? '⏹️' : '🎤'}</button>
-          <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder={activePrivateChat ? `Сообщение для ${activePrivateChat}...` : "Введите сообщение..."} style={{ flex: 1, padding: '0.75rem', borderRadius: '20px', border: '1px solid var(--input-border)', outline: 'none', backgroundColor: 'var(--input-bg)', color: 'var(--text-primary)' }} disabled={isUploading} />
-          <button type="submit" disabled={(!inputText.trim() && !audioBlob) || isUploading} style={{ padding: '0 1.5rem', borderRadius: '20px', border: 'none', backgroundColor: 'var(--accent)', color: 'white', cursor: 'pointer', fontWeight: 'bold' }}>{isUploading ? '⏳' : '➤'}</button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="btn-icon" title="Прикрепить файл">📎</button>
+          <button type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isUploading} className="btn-icon" title={isRecording ? 'Остановить запись' : 'Записать голосовое сообщение'}>{isRecording ? '⏹️' : '🎤'}</button>
+          <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder={activePrivateChat ? `Сообщение для ${activePrivateChat}...` : "Введите сообщение..."} className="input-field" disabled={isUploading} />
+          <button type="submit" disabled={(!inputText.trim() && !audioBlob) || isUploading} className="send-btn">{isUploading ? '⏳' : '➤'}</button>
         </form>
       </div>
-
-      <style>{`
-        :root {
-          --bg-primary: #ffffff;
-          --bg-secondary: #f9f9f9;
-          --bg-own-message: #d1fae5;
-          --bg-other-message: #f3f4f6;
-          --text-primary: #000000;
-          --text-secondary: #6b7280;
-          --text-muted: #999999;
-          --border: #dddddd;
-          --input-bg: #ffffff;
-          --input-border: #cccccc;
-          --accent: #2563eb;
-          --highlight: #e0e7ff;
-          --error-bg: #fee2e2;
-          --error-text: #991b1b;
-          --error-border: #fca5a5;
-        }
-        [data-theme="dark"] {
-          --bg-primary: #1a1a1a;
-          --bg-secondary: #252525;
-          --bg-own-message: #064e3b;
-          --bg-other-message: #374151;
-          --text-primary: #f3f4f6;
-          --text-secondary: #9ca3af;
-          --text-muted: #6b7280;
-          --border: #3f3f3f;
-          --input-bg: #2d2d2d;
-          --input-border: #4b5563;
-          --accent: #3b82f6;
-          --highlight: #1e3a8a;
-          --error-bg: #7f1d1d;
-          --error-text: #fecaca;
-          --error-border: #991b1b;
-        }
-        body { background-color: var(--bg-primary); color: var(--text-primary); margin: 0; transition: background-color 0.3s ease, color 0.3s ease; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-        @media (min-width: 769px) {
-          .sidebar-desktop { position: relative !important; transform: none !important; }
-          .mobile-menu-btn { display: none !important; }
-          .mobile-backdrop { display: none !important; }
-          .main-area { margin-left: 0 !important; }
-        }
-        @media (max-width: 768px) {
-          .sidebar-desktop { width: 85% !important; max-width: 320px !important; box-shadow: 2px 0 8px rgba(0,0,0,0.4); }
-          .mobile-menu-btn { display: block !important; }
-          .chat-header { padding-top: 50px !important; }
-        }
-      `}</style>
     </div>
   );
-}
+}            
