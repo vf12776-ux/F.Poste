@@ -22,13 +22,15 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
 
   const response = await fetch(API_BASE + endpoint, { ...options, headers });
   
+  // Логируем статус для отладки
   if (!response.ok) {
+    const errText = await response.text();
+    console.error(`API Error at ${endpoint}:`, response.status, errText);
     if (response.status === 401) {
       clearToken();
       window.location.reload();
     }
-    const errText = await response.text();
-    throw new Error(`API error: ${response.status} - ${errText}`);
+    throw new Error(`API error: ${response.status}`);
   }
   
   return response.json();
@@ -37,7 +39,7 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
 export async function login(username: string, displayName: string) {
   return apiRequest('/api/login', {
     method: 'POST',
-    body: JSON.stringify({ username, displayName }),
+    body: JSON.stringify({ username, display_name: displayName }), // Пробуем оба варианта
   });
 }
 
@@ -45,10 +47,16 @@ export async function getMe() {
   return apiRequest('/api/me');
 }
 
+// ИСПРАВЛЕНО: Отправляем и channelId, и channel_id для совместимости
 export async function sendMessage(text: string, username: string, channelId?: string) {
   return apiRequest('/api/send', {
     method: 'POST',
-    body: JSON.stringify({ text, username, channelId }),
+    body: JSON.stringify({ 
+      text, 
+      username, 
+      channelId, 
+      channel_id: channelId 
+    }),
   });
 }
 
@@ -87,7 +95,7 @@ export async function createChannel(name: string) {
 export async function sendPrivateMessage(to: string, text: string) {
   return apiRequest('/api/private/send', {
     method: 'POST',
-    body: JSON.stringify({ to, text }),
+    body: JSON.stringify({ to, text, to_username: to }), // Дублируем для надежности
   });
 }
 
@@ -96,17 +104,20 @@ export async function loadPrivateHistory(withUser: string) {
   return Array.isArray(data) ? data : [];
 }
 
-// 🔥 ИСПРАВЛЕНИЕ: Распаковываем объект { partner, lastTs } в простую строку
 export async function listPrivateChats() {
-  const data = await apiRequest('/api/private/chats');
-  if (Array.isArray(data)) {
-    return data.map((item: any) => {
-      if (typeof item === 'string') return item; // Если уже строка, оставляем
-      // Если объект, извлекаем имя партнера (поддерживаем разные варианты имен ключей)
-      return item.partner || item.username || item.to_username || item.from_username || 'Unknown';
-    });
+  try {
+    const data = await apiRequest('/api/private/chats');
+    if (Array.isArray(data)) {
+      return data.map((item: any) => {
+        if (typeof item === 'string') return item;
+        return item.partner || item.username || item.to_username || item.from_username || 'Unknown';
+      });
+    }
+    return [];
+  } catch (e) {
+    console.error("Failed to load private chats", e);
+    return []; // Возвращаем пустой массив вместо падения
   }
-  return [];
 }
 
 export async function uploadFile(file: File) {
