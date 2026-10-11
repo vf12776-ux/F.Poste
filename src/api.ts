@@ -1,4 +1,5 @@
 const API_BASE = '';
+const EDGE_FUNCTION_URL = "https://ibwuozucqkeylykndign.supabase.co/functions/v1";
 
 export function setToken(token: string) {
   localStorage.setItem('fposte_token', token);
@@ -53,16 +54,24 @@ export async function getMe() {
 }
 
 export async function sendMessage(text: string, username: string, channelId?: string, fileUrl?: string, fileName?: string) {
-  return apiRequest('/api/send', {
+  const response = await fetch(`${EDGE_FUNCTION_URL}/send-message`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ 
       text, 
       username, 
-      channelId: channelId || "",
-      fileUrl: fileUrl || "",
-      fileName: fileName || ""
+      channel_id: channelId || "",
+      file_url: fileUrl || "",
+      file_name: fileName || ""
     }),
   });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Failed to send message');
+  }
+
+  return await response.json();
 }
 
 export async function loadHistory(channelId?: string) {
@@ -142,18 +151,28 @@ export async function listPrivateChats() {
 }
 
 export async function uploadFile(file: File): Promise<{ url: string; name: string }> {
-  const formData = new FormData();
-  formData.append('file', file);
   const token = getToken();
   
-  const response = await fetch(API_BASE + '/upload', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    body: formData,
-  });
+  // Получаем presigned URL для прямой загрузки в Storage
+  const supabaseUrl = "https://ibwuozucqkeylykndign.supabase.co";
+  const storageUrl = `${supabaseUrl}/storage/v1/object/fposte-files/${file.name}`;
   
+  const response = await fetch(storageUrl, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': file.type,
+    },
+    body: file,
+  });
+
   if (!response.ok) throw new Error('Upload error');
-  return response.json();
+  
+  // Возвращаем публичную ссылку на файл
+  return { 
+    url: `${supabaseUrl}/storage/v1/object/public/fposte-files/${file.name}`, 
+    name: file.name 
+  };
 }
 
 export async function editMessage(id: string, text: string) {
