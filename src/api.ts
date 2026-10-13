@@ -1,3 +1,4 @@
+   import { createClient } from '@supabase/supabase-js'
 const API_BASE = '';
 const EDGE_FUNCTION_URL = "https://ibwuozucqkeylykndign.supabase.co/functions/v1";
 
@@ -296,74 +297,53 @@ export async function clearChannel(channelId: string) {
     body: JSON.stringify({ channelId }),
   });
 }
-// Realtime через нативный WebSocket (без установки библиотек)
 const supabaseUrl = "https://ibwuozucqkeylykndign.supabase.co"
 const supabasePublishableKey = "sb_publishable_aizrKrP8OKsX6u4SXEl35A_YHf7ywbg"
 
+const supabase = createClient(supabaseUrl, supabasePublishableKey)
+
 export function subscribeToMessages(channelId: string, callback: (message: any) => void) {
-  const wsUrl = `wss://${supabaseUrl.replace('https://', '')}/realtime/v1/websocket?apikey=${supabasePublishableKey}&vsn=1.0.0`
-  const ws = new WebSocket(wsUrl)
+  const channelName = channelId ? `messages-${channelId}` : 'messages-all'
   
-  ws.onopen = () => {
-    // Подписываемся на изменения в таблице messages
-    ws.send(JSON.stringify({
-      topic: `realtime:public:messages`,
-      event: 'phx_join',
-      payload: { config: { broadcast: { self: true } } },
-      ref: '1'
-    }))
-  }
-  
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      if (data.event === 'INSERT' && data.payload?.new) {
-        const msg = data.payload.new
-        if (!channelId || msg.channel_id === channelId) {
-          callback(msg)
-        }
+  return supabase
+    .channel(channelName)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'messages',
+        filter: channelId ? `channel_id=eq.${channelId}` : undefined,
+      },
+      (payload) => {
+        callback(payload.new)
       }
-    } catch (e) {
-      console.error('WebSocket parse error:', e)
-    }
-  }
-  
-  return ws
+    )
+    .subscribe()
 }
 
 export function subscribeToPrivateMessages(username: string, callback: (message: any) => void) {
-  const wsUrl = `wss://${supabaseUrl.replace('https://', '')}/realtime/v1/websocket?apikey=${supabasePublishableKey}&vsn=1.0.0`
-  const ws = new WebSocket(wsUrl)
-  
-  ws.onopen = () => {
-    ws.send(JSON.stringify({
-      topic: `realtime:public:private_messages`,
-      event: 'phx_join',
-      payload: { config: { broadcast: { self: true } } },
-      ref: '1'
-    }))
-  }
-  
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      if (data.event === 'INSERT' && data.payload?.new) {
-        const msg = data.payload.new
+  return supabase
+    .channel(`private-${username}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'private_messages',
+      },
+      (payload) => {
+        const msg = payload.new
         if (msg.from_username === username || msg.to_username === username) {
           callback(msg)
         }
       }
-    } catch (e) {
-      console.error('WebSocket parse error:', e)
-    }
-  }
-  
-  return ws
+    )
+    .subscribe()
 }
 
-export function unsubscribeFromChannel(ws: WebSocket | null) {
-  if (ws) {
-    ws.close()
+export function unsubscribeFromChannel(subscription: any) {
+  if (subscription) {
+    supabase.removeChannel(subscription)
   }
 }
-

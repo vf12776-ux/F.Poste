@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  login, getMe, getToken, setToken, clearToken, 
-    listChannels, loadHistory, sendMessage, editMessage, deleteMessage, clearChannel, subscribeToMessages, unsubscribeFromChannel,
+   import { 
+     login, getMe, getToken, setToken, clearToken, 
+     listChannels, loadHistory, sendMessage, editMessage, deleteMessage, clearChannel, subscribeToMessages, unsubscribeFromChannel,
      listPrivateChats, loadPrivateHistory, sendPrivateMessage, editPrivateMessage, subscribeToPrivateMessages,
-  deletePrivateMessage, clearPrivateChat, uploadFile
-} from './api';
+     deletePrivateMessage, clearPrivateChat, uploadFile
+   } from './api';
 
 interface User { username: string; display_name?: string }
 interface Channel { id: string; name: string }
@@ -145,6 +145,29 @@ export default function App() {
     }
     setIsHistoryLoading(false);
   };
+  // Подписка на новые сообщения в общем чате (Realtime)
+useEffect(() => {
+  if (!activeChannelId) return;
+
+  const subscription = subscribeToMessages(activeChannelId, (newMessage) => {
+    setChannelMessages(prev => {
+      if (prev.some(m => m.id === newMessage.id)) return prev; // Защита от дублей
+      return [...prev, {
+        id: newMessage.id,
+        username: newMessage.username,
+        text: newMessage.text,
+        timestamp: newMessage.timestamp,
+        channelId: newMessage.channel_id,
+        fileUrl: newMessage.file_url || '',
+        fileName: newMessage.file_name || '',
+      }];
+    });
+  });
+
+  return () => {
+    unsubscribeFromChannel(subscription);
+  };
+}, [activeChannelId]);
     // Подписка на новые сообщения в реальном времени
   useEffect(() => {
     if (!activeChannelId) return;
@@ -181,8 +204,32 @@ export default function App() {
     }
     setIsHistoryLoading(false);
   };
-    // Подписка на новые приватные сообщения в реальном времени
-    // Подписка на новые приватные сообщения в реальном времени
+    // Подписка на новые приватные сообщения (Realtime)
+useEffect(() => {
+  if (!activePrivateChat || !user?.username) return;
+
+  const subscription = subscribeToPrivateMessages(user.username, (newMessage) => {
+    setPrivateMessages(prev => {
+      const chatMessages = prev[activePrivateChat] || [];
+      if (chatMessages.some(m => m.id === newMessage.id)) return prev; // Защита от дублей
+      return {
+        ...prev,
+        [activePrivateChat]: [...chatMessages, {
+          id: newMessage.id,
+          username: newMessage.from_username,
+          text: newMessage.text,
+          timestamp: newMessage.timestamp,
+          fileUrl: newMessage.file_url || '',
+          fileName: newMessage.file_name || '',
+        }]
+      };
+    });
+  });
+
+  return () => {
+    unsubscribeFromChannel(subscription);
+  };
+}, [activePrivateChat, user?.username]);
     // Подписка на новые приватные сообщения в реальном времени
   useEffect(() => {
     if (!activePrivateChat || !user?.username) return;
