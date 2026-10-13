@@ -134,7 +134,16 @@ export async function clearChat(username: string) {
 }
 
 export async function listChannels() {
-  const data = await apiRequest('/api/channels');
+  const response = await fetch(`${EDGE_FUNCTION_URL}/list-channels`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to load channels');
+  }
+
+  const data = await response.json();
   return Array.isArray(data) ? data : [];
 }
 
