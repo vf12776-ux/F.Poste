@@ -43,10 +43,25 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
 }
 
 export async function login(username: string, displayName: string) {
-  return apiRequest('/api/login', {
+  const response = await fetch(`${EDGE_FUNCTION_URL}/login`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, displayName }),
   });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Login failed');
+  }
+
+  const data = await response.json();
+  
+  // Сохраняем токен, если он пришел
+  if (data.token) {
+    setToken(data.token);
+  }
+  
+  return data;
 }
 
 export async function getMe() {
@@ -76,8 +91,22 @@ export async function sendMessage(text: string, username: string, channelId?: st
 
 export async function loadHistory(channelId?: string) {
   const query = channelId ? `?channel=${channelId}` : '';
-  const data = await apiRequest('/api/messages' + query);
+  
+  const response = await fetch(`${EDGE_FUNCTION_URL}/load-history${query}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to load history');
+  }
+
+  const data = await response.json();
   if (!Array.isArray(data)) return [];
+  
+  // Оставляем ту же нормализацию данных, чтобы фронтенд не сломался
   return data.map((m: any) => ({
     id: m.id,
     username: m.username,
