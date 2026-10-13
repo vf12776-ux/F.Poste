@@ -161,31 +161,56 @@ export async function sendPrivateMessage(to: string, text: string, fileUrl?: str
   });
 }
 
+export async function listPrivateChats() {
+  const token = getToken();
+  const response = await fetch(`${EDGE_FUNCTION_URL}/list-private-chats`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  });
+
+  if (!response.ok) {
+    console.error("Error loading private chats", response.status);
+    return [];
+  }
+
+  const data = await response.json();
+  if (Array.isArray(data)) {
+    return data.map((item: any) => item.partner || 'Unknown');
+  }
+  return [];
+}
+
 export async function loadPrivateHistory(withUser: string) {
-  const data = await apiRequest(`/api/private/history?with=${withUser}`);
+  const token = getToken();
+  const response = await fetch(`${EDGE_FUNCTION_URL}/load-private-history?with=${encodeURIComponent(withUser)}`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to load private history');
+  }
+
+  const data = await response.json();
   if (!Array.isArray(data)) return [];
+
   return data.map((m: any) => ({
     id: m.id,
-    username: m.from || m.from_username || m.username,
+    username: m.from_username || m.from || m.username,
     text: m.text,
     timestamp: m.timestamp,
     edited: m.edited,
     fileUrl: m.fileUrl || m.file_url || '',
     fileName: m.fileName || m.file_name || '',
+    to_username: m.to_username,
+    from_username: m.from_username,
   }));
-}
-
-export async function listPrivateChats() {
-  try {
-    const data = await apiRequest('/api/private/chats');
-    if (Array.isArray(data)) {
-      return data.map((item: any) => item.partner || item.username || 'Unknown');
-    }
-    return [];
-  } catch (e) {
-    console.error("Error loading private chats", e);
-    return [];
-  }
 }
 
 export async function uploadFile(file: File): Promise<{ url: string; name: string }> {
