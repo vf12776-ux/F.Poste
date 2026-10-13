@@ -233,25 +233,31 @@ export async function loadPrivateHistory(withUser: string) {
 
 export async function uploadFile(file: File): Promise<{ url: string; name: string }> {
   const token = getToken();
-  
-  // Получаем presigned URL для прямой загрузки в Storage
   const supabaseUrl = "https://ibwuozucqkeylykndign.supabase.co";
-  const storageUrl = `${supabaseUrl}/storage/v1/object/fposte-files/${file.name}`;
+  
+  // Генерируем уникальное имя, чтобы файлы не перезаписывались
+  const uniqueName = `${Date.now()}_${file.name.replace(/\s/g, '_')}`;
+  const storageUrl = `${supabaseUrl}/storage/v1/object/fposte-files/${uniqueName}`;
   
   const response = await fetch(storageUrl, {
     method: 'PUT',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': file.type,
+      'x-upsert': 'true', // Разрешаем перезапись если имя совпало (на всякий случай)
     },
     body: file,
   });
 
-  if (!response.ok) throw new Error('Upload error');
-  
-  // Возвращаем публичную ссылку на файл
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Supabase Upload Error:", errorText);
+    throw new Error(`Upload failed: ${response.status}`);
+  }
+
+  // Возвращаем публичную ссылку вручную, так как Supabase PUT не всегда возвращает JSON
   return { 
-    url: `${supabaseUrl}/storage/v1/object/public/fposte-files/${file.name}`, 
+    url: `${supabaseUrl}/storage/v1/object/public/fposte-files/${uniqueName}`, 
     name: file.name 
   };
 }
