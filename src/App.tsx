@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   login, getMe, getToken, setToken, clearToken, 
-  listChannels, loadHistory, sendMessage, editMessage, deleteMessage, clearChannel,
-  listPrivateChats, loadPrivateHistory, sendPrivateMessage, editPrivateMessage, 
+    listChannels, loadHistory, sendMessage, editMessage, deleteMessage, clearChannel, subscribeToMessages, unsubscribeFromChannel,
+     listPrivateChats, loadPrivateHistory, sendPrivateMessage, editPrivateMessage, subscribeToPrivateMessages,
   deletePrivateMessage, clearPrivateChat, uploadFile
 } from './api';
 
@@ -145,6 +145,30 @@ export default function App() {
     }
     setIsHistoryLoading(false);
   };
+    // Подписка на новые сообщения в реальном времени
+  useEffect(() => {
+    if (!activeChannelId) return;
+
+    const subscription = subscribeToMessages(activeChannelId, (newMessage) => {
+      setChannelMessages(prev => {
+        // Защита от дублей
+        if (prev.some(m => m.id === newMessage.id)) return prev;
+        return [...prev, {
+          id: newMessage.id,
+          username: newMessage.username,
+          text: newMessage.text,
+          timestamp: newMessage.timestamp,
+          channelId: newMessage.channel_id,
+          fileUrl: newMessage.file_url || '',
+          fileName: newMessage.file_name || '',
+        }];
+      });
+    });
+
+    return () => {
+      unsubscribeFromChannel(subscription);
+    };
+  }, [activeChannelId]);
 
   const loadPrivateMessages = async (targetUsername: string) => {
     setIsHistoryLoading(true);
@@ -157,7 +181,34 @@ export default function App() {
     }
     setIsHistoryLoading(false);
   };
+    // Подписка на новые приватные сообщения в реальном времени
+    // Подписка на новые приватные сообщения в реальном времени
+    // Подписка на новые приватные сообщения в реальном времени
+  useEffect(() => {
+    if (!activePrivateChat || !user?.username) return;
 
+    const subscription = subscribeToPrivateMessages(user.username, (newMessage) => {
+      setPrivateMessages(prev => {
+        const chatMessages = prev[activePrivateChat] || [];
+        if (chatMessages.some(m => m.id === newMessage.id)) return prev;
+        return {
+          ...prev,
+          [activePrivateChat]: [...chatMessages, {
+            id: newMessage.id,
+            username: newMessage.from_username,
+            text: newMessage.text,
+            timestamp: newMessage.timestamp,
+            fileUrl: newMessage.file_url || '',
+            fileName: newMessage.file_name || '',
+          }]
+        };
+      });
+    });
+
+    return () => {
+      unsubscribeFromChannel(subscription);
+    };
+  }, [activePrivateChat, user?.username]);
   const selectChannel = async (channelId: string) => {
     setActiveChannelId(channelId);
     setActivePrivateChat(null);
