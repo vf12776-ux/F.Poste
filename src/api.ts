@@ -155,10 +155,28 @@ export async function createChannel(name: string) {
 }
 
 export async function sendPrivateMessage(to: string, text: string, fileUrl?: string, fileName?: string) {
-  return apiRequest('/api/private/send', {
+  const token = getToken();
+  
+  const response = await fetch(`${EDGE_FUNCTION_URL}/send-private-message`, {
     method: 'POST',
-    body: JSON.stringify({ to, text, fileUrl: fileUrl || "", fileName: fileName || "" }),
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` }),
+    },
+    body: JSON.stringify({ 
+      to, 
+      text, 
+      fileUrl: fileUrl || "", 
+      fileName: fileName || "" 
+    }),
   });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Failed to send private message');
+  }
+
+  return await response.json();
 }
 
 export async function listPrivateChats() {
