@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/Chat.tsx","./src/api.ts","./src/main.tsx","./src/supabaseClient.ts","./src/components/LoginScreen.tsx"],"version":"5.6.3"}
+{"root":["./src/app.tsx","./src/chat.tsx","./src/api.ts","./src/main.tsx","./src/supabaseclient.ts","./src/components/loginscreen.tsx"],"version":"5.6.3"}
