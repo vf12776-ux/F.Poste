@@ -145,6 +145,29 @@ export default function App() {
     }
     setIsHistoryLoading(false);
   };
+    // Подписка на новые сообщения в реальном времени
+  useEffect(() => {
+    if (!activeChannelId) return;
+
+    const subscription = subscribeToMessages(activeChannelId, (newMessage) => {
+      setChannelMessages(prev => {
+        if (prev.some(m => m.id === newMessage.id)) return prev;
+        return [...prev, {
+          id: newMessage.id,
+          username: newMessage.username,
+          text: newMessage.text,
+          timestamp: newMessage.timestamp,
+          channelId: newMessage.channel_id,
+          fileUrl: newMessage.file_url || '',
+          fileName: newMessage.file_name || '',
+        }];
+      });
+    });
+
+    return () => {
+      unsubscribeFromChannel(subscription);
+    };
+  }, [activeChannelId]);
   // Подписка на новые сообщения в общем чате (Realtime)
 useEffect(() => {
   if (!activeChannelId) return;
