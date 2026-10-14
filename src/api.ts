@@ -1,6 +1,8 @@
    import { createClient } from '@supabase/supabase-js'
 const API_BASE = '';
 const EDGE_FUNCTION_URL = "https://ibwuozucqkeylykndign.supabase.co/functions/v1";
+const SUPABASE_URL = "https://ibwuozucqkeylykndign.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_aizrKrP8OKsX6u4SXEl35A_YHf7ywbg"; // Твой публичный ключ из настроек Supabase
 
 export function setToken(token: string) {
   localStorage.setItem('fposte_token', token);
@@ -46,7 +48,10 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
 export async function login(username: string, displayName: string) {
   const response = await fetch(`${EDGE_FUNCTION_URL}/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY 
+    },
     body: JSON.stringify({ username, displayName }),
   });
 
@@ -57,7 +62,6 @@ export async function login(username: string, displayName: string) {
 
   const data = await response.json();
   
-  // Сохраняем токен, если он пришел
   if (data.token) {
     setToken(data.token);
   }
