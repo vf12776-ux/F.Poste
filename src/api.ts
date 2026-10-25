@@ -1,9 +1,7 @@
-   import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 
-// МЕНЯЕМ ПУСТУЮ СТРОКУ НА URL ФУНКЦИЙ
-const API_BASE = "https://ibwuozucqkeylykndign.supabase.co/functions/v1"; 
-const EDGE_FUNCTION_URL = API_BASE; // Чтобы не дублировать
-const SUPABASE_URL = "https://ibwuozucqkeylykndign.supabase.co";
+const EDGE_FUNCTION_URL = "https://ibwuozucqkeylykndign.supabase.co/functions/v1";
+const API_BASE = EDGE_FUNCTION_URL;
 const SUPABASE_ANON_KEY = "sb_publishable_aizrKrP8OKsX6u4SXEl35A_YHf7ywbg";
 
 export function setToken(token: string) {
@@ -24,6 +22,7 @@ async function apiRequest(endpoint: string, options: RequestInit = {}) {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache, no-store, must-revalidate',
     'Pragma': 'no-cache',
+    'apikey': SUPABASE_ANON_KEY,
     ...(token && { Authorization: `Bearer ${token}` }),
     ...options.headers,
   };
@@ -72,7 +71,7 @@ export async function login(username: string, displayName: string) {
 }
 
 export async function getMe() {
-  return apiRequest('/api/me');
+  return apiRequest('/get-me');
 }
 
 export async function sendMessage(text: string, username: string, channelId?: string, fileUrl?: string, fileName?: string) {
@@ -113,7 +112,6 @@ export async function loadHistory(channelId?: string) {
   const data = await response.json();
   if (!Array.isArray(data)) return [];
   
-  // Оставляем ту же нормализацию данных, чтобы фронтенд не сломался
   return data.map((m: any) => ({
     id: m.id,
     username: m.username,
@@ -127,14 +125,14 @@ export async function loadHistory(channelId?: string) {
 }
 
 export async function deleteMessage(id: string) {
-  return apiRequest('/api/delete', {
+  return apiRequest('/delete-message', {
     method: 'POST',
     body: JSON.stringify({ id }),
   });
 }
 
 export async function clearChat(username: string) {
-  return apiRequest('/api/clear', {
+  return apiRequest('/clear-chat', {
     method: 'POST',
     body: JSON.stringify({ username }),
   });
@@ -155,7 +153,7 @@ export async function listChannels() {
 }
 
 export async function createChannel(name: string) {
-  return apiRequest('/api/channels/create', {
+  return apiRequest('/create-channel', {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
@@ -242,7 +240,6 @@ export async function uploadFile(file: File): Promise<{ url: string; name: strin
   const token = getToken();
   const supabaseUrl = "https://ibwuozucqkeylykndign.supabase.co";
   
-  // Генерируем уникальное имя, чтобы файлы не перезаписывались
   const uniqueName = `${Date.now()}_${file.name.replace(/\s/g, '_')}`;
   const storageUrl = `${supabaseUrl}/storage/v1/object/fposte-files/${uniqueName}`;
   
@@ -251,7 +248,7 @@ export async function uploadFile(file: File): Promise<{ url: string; name: strin
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': file.type,
-      'x-upsert': 'true', // Разрешаем перезапись если имя совпало (на всякий случай)
+      'x-upsert': 'true',
     },
     body: file,
   });
@@ -262,7 +259,6 @@ export async function uploadFile(file: File): Promise<{ url: string; name: strin
     throw new Error(`Upload failed: ${response.status}`);
   }
 
-  // Возвращаем публичную ссылку вручную, так как Supabase PUT не всегда возвращает JSON
   return { 
     url: `${supabaseUrl}/storage/v1/object/public/fposte-files/${uniqueName}`, 
     name: file.name 
@@ -270,39 +266,40 @@ export async function uploadFile(file: File): Promise<{ url: string; name: strin
 }
 
 export async function editMessage(id: string, text: string) {
-  return apiRequest('/api/edit', {
+  return apiRequest('/edit-message', {
     method: 'POST',
     body: JSON.stringify({ id, text }),
   });
 }
 
 export async function editPrivateMessage(id: string, text: string) {
-  return apiRequest('/api/private/edit', {
+  return apiRequest('/edit-private-message', {
     method: 'POST',
     body: JSON.stringify({ id, text }),
   });
 }
 
 export async function deletePrivateMessage(id: string) {
-  return apiRequest('/api/private/delete', {
+  return apiRequest('/delete-private-message', {
     method: 'POST',
     body: JSON.stringify({ id }),
   });
 }
 
 export async function clearPrivateChat(withUser: string) {
-  return apiRequest('/api/private/clear', {
+  return apiRequest('/clear-private-chat', {
     method: 'POST',
     body: JSON.stringify({ withUser }),
   });
 }
 
 export async function clearChannel(channelId: string) {
-  return apiRequest('/api/clear-channel', {
+  return apiRequest('/clear-channel', {
     method: 'POST',
     body: JSON.stringify({ channelId }),
   });
 }
+
 const supabaseUrl = "https://ibwuozucqkeylykndign.supabase.co"
 const supabasePublishableKey = "sb_publishable_aizrKrP8OKsX6u4SXEl35A_YHf7ywbg"
 
