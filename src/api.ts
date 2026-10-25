@@ -1,8 +1,10 @@
    import { createClient } from '@supabase/supabase-js'
-const API_BASE = '';
-const EDGE_FUNCTION_URL = "https://ibwuozucqkeylykndign.supabase.co/functions/v1";
+
+// МЕНЯЕМ ПУСТУЮ СТРОКУ НА URL ФУНКЦИЙ
+const API_BASE = "https://ibwuozucqkeylykndign.supabase.co/functions/v1"; 
+const EDGE_FUNCTION_URL = API_BASE; // Чтобы не дублировать
 const SUPABASE_URL = "https://ibwuozucqkeylykndign.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_aizrKrP8OKsX6u4SXEl35A_YHf7ywbg"; // Твой публичный ключ из настроек Supabase
+const SUPABASE_ANON_KEY = "sb_publishable_aizrKrP8OKsX6u4SXEl35A_YHf7ywbg";
 
 export function setToken(token: string) {
   localStorage.setItem('fposte_token', token);
