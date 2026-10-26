@@ -103,3 +103,35 @@ export function subscribeToPrivateMessages(username: string, callback: (message:
 export function unsubscribeFromChannel(subscription: any) {
   if (subscription) supabase.removeChannel(subscription);
 }
+export async function editPrivateMessage(messageId: string, text: string) {
+  const token = getToken()
+  const res = await fetch(`${EDGE_FUNCTION_URL}/edit-private-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify({ messageId, text }),
+  })
+  if (!res.ok) throw new Error('Failed to edit private message')
+  return res.json()
+}
+
+export async function deletePrivateMessage(messageId: string) {
+  const token = getToken()
+  const res = await fetch(`${EDGE_FUNCTION_URL}/delete-private-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify({ messageId }),
+  })
+  if (!res.ok) throw new Error('Failed to delete private message')
+  return res.json()
+}
+
+export async function clearPrivateChat(username: string) {
+  const token = getToken()
+  const res = await fetch(`${EDGE_FUNCTION_URL}/clear-private-chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify({ username }),
+  })
+  if (!res.ok) throw new Error('Failed to clear private chat')
+  return res.json()
+}

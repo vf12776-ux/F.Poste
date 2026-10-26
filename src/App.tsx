@@ -1,293 +1,540 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  login, 
-  getMe, 
-  listPrivateChats, 
-  loadPrivateHistory, 
-  sendPrivateMessage, 
-  uploadFile, 
-  subscribeToPrivateMessages,
-  unsubscribeFromChannel,
-  clearToken
+  login, getMe, getToken, setToken, clearToken, 
+  listPrivateChats, loadPrivateHistory, sendPrivateMessage, editPrivateMessage, subscribeToPrivateMessages,
+  deletePrivateMessage, clearPrivateChat, uploadFile, unsubscribeFromChannel
 } from './api';
-
-interface User {
-  username: string;
-  displayName: string;
+interface User { username: string; display_name?: string }
+interface Message { 
+  id: string; 
+  username: string; 
+  text: string; 
+  fileUrl?: string; 
+  fileName?: string; 
+  timestamp: number; 
+  edited?: boolean;
 }
 
-interface Message {
-  id: string;
-  username: string;
-  text: string;
-  timestamp: string;
-  fileUrl?: string;
-  fileName?: string;
-  to_username?: string;
-  from_username?: string;
-}
-
-function App() {
+export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [usernameInput, setUsernameInput] = useState('');
-  const [displayNameInput, setDisplayNameInput] = useState('');
-  const [chats, setChats] = useState<string[]>([]);
-  const [activeChat, setActiveChat] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [initError, setInitError] = useState<string | null>(null);
+
+  const [privateChats, setPrivateChats] = useState<string[]>([]);
+  const [activePrivateChat, setActivePrivateChat] = useState<string | null>(null);
+  const [privateMessages, setPrivateMessages] = useState<Record<string, Message[]>>({});
+
   const [inputText, setInputText] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    return localStorage.getItem('fposte_dark_mode') === 'true';
+  });
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const subscriptionRef = useRef<any>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { checkAuth(); }, []);
+  
+  useEffect(() => { 
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+  }, [privateMessages, activePrivateChat]);
 
   useEffect(() => {
-    const init = async () => {
-      const me = await getMe();
-      if (me) {
-        setUser(me);
-        loadChats();
-      }
-    };
-    init();
-  }, []);
+    document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+    localStorage.setItem('fposte_dark_mode', String(isDarkMode));
+  }, [isDarkMode]);
 
-  useEffect(() => {
-    if (user && activeChat) {
-      if (subscriptionRef.current) {
-        unsubscribeFromChannel(subscriptionRef.current);
+  const checkAuth = async () => {
+    const token = getToken();
+    if (token) {
+      try {
+        const userData = await getMe();
+        setUser(userData);
+        await loadInitialData();
+      } catch (e) {
+        console.error("Auth check failed", e);
+        clearToken();
       }
-      
-      subscriptionRef.current = subscribeToPrivateMessages(user.username, (newMsg: any) => {
-        if (newMsg.from_username === activeChat || newMsg.to_username === activeChat) {
-          setMessages(prev => [...prev, {
-            id: newMsg.id,
-            username: newMsg.from_username,
-            text: newMsg.text,
-            timestamp: newMsg.timestamp,
-            fileUrl: newMsg.file_url,
-            fileName: newMsg.file_name,
-            to_username: newMsg.to_username,
-            from_username: newMsg.from_username
-          }]);
-        }
-      });
     }
-    return () => {
-      if (subscriptionRef.current) unsubscribeFromChannel(subscriptionRef.current);
-    };
-  }, [user, activeChat]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    setIsLoading(false);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    if (usernameInput.trim().length < 5) return alert('Минимум 5 символов');
+    setIsLoading(true);
+    setInitError(null);
+    setSendError(null);
     try {
-      await login(usernameInput, displayNameInput);
-      const me = await getMe();
-      if (me) {
-        setUser(me);
-        loadChats();
+      const data = await login(usernameInput.trim(), usernameInput.trim());
+      if (data.token) {
+        setToken(data.token);
+        setUser({ username: data.username || usernameInput.trim(), display_name: data.displayName});
+        await loadInitialData();
       }
     } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setLoading(false);
+      alert('Ошибка входа: ' + err.message);
     }
-  };
-
-  const loadChats = async () => {
-    const chatList = await listPrivateChats();
-    setChats(chatList);
-  };
-
-  const openChat = async (partner: string) => {
-    setActiveChat(partner);
-    setLoading(true);
-    const history = await loadPrivateHistory(partner);
-    setMessages(history);
-    setLoading(false);
-  };
-
-  const handleSend = async () => {
-    if (!inputText.trim() || !activeChat || !user) return;
-    
-    const tempId = Date.now().toString();
-    const optimisticMsg: Message = {
-      id: tempId,
-      username: user.username,
-      text: inputText,
-      timestamp: new Date().toISOString(),
-      to_username: activeChat,
-      from_username: user.username
-    };
-    
-    setMessages(prev => [...prev, optimisticMsg]);
-    setInputText('');
-    
-    try {
-      await sendPrivateMessage(activeChat, inputText);
-    } catch (err) {
-      console.error("Send failed", err);
-    }
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || !e.target.files[0] || !activeChat) return;
-    
-    const file = e.target.files[0];
-    setUploading(true);
-    
-    try {
-      const { url, name } = await uploadFile(file);
-      await sendPrivateMessage(activeChat, `Файл: ${name}`, url, name);
-    } catch (err) {
-      alert("Ошибка загрузки файла");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+    setIsLoading(false);
   };
 
   const handleLogout = () => {
     clearToken();
-    window.location.reload();
+    setUser(null);
+    setPrivateMessages({});
+    setPrivateChats([]);
+  };
+
+  const loadInitialData = async () => {
+    setInitError(null);
+    try {
+      const pChats = await listPrivateChats();
+      setPrivateChats(pChats);
+    } catch (e) { 
+      console.error("Failed to load private chats", e); 
+    }
+  };
+
+  const loadPrivateMessages = async (targetUsername: string) => {
+    try {
+      const msgs = await loadPrivateHistory(targetUsername);
+      setPrivateMessages(prev => ({ ...prev, [targetUsername]: msgs }));
+    } catch (err) { 
+      console.error(err); 
+      setSendError("Не удалось загрузить историю ЛС");
+    }
+  };
+
+  // Подписка на новые приватные сообщения в реальном времени
+  useEffect(() => {
+    if (!activePrivateChat || !user?.username) return;
+
+    const subscription = subscribeToPrivateMessages(user.username, (newMessage) => {
+      setPrivateMessages(prev => {
+        const chatMessages = prev[activePrivateChat] || [];
+        if (chatMessages.some(m => m.id === newMessage.id)) return prev;
+        return {
+          ...prev,
+          [activePrivateChat]: [...chatMessages, {
+            id: newMessage.id,
+            username: newMessage.from_username,
+            text: newMessage.text,
+            timestamp: newMessage.timestamp,
+            fileUrl: newMessage.file_url || '',
+            fileName: newMessage.file_name || '',
+          }]
+        };
+      });
+    });
+
+    return () => {
+      unsubscribeFromChannel(subscription);
+    };
+  }, [activePrivateChat, user?.username]);
+
+  const selectPrivateChat = async (username: string) => {
+    setActivePrivateChat(username);
+    setIsSidebarOpen(false);
+    setInputText('');
+    setSendError(null);
+    setEditingMessageId(null);
+    if (!privateMessages[username]) {
+      await loadPrivateMessages(username);
+    }
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if ((!inputText.trim() && !audioBlob) || !user) return;
+
+    const tempId = `temp-${Date.now()}`;
+    const textToSend = inputText.trim();
+    let file_url = '';
+    let file_name = '';
+
+    if (audioBlob) {
+      setIsUploading(true);
+      try {
+        const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
+        const uploaded = await uploadFile(audioFile);
+        file_url = uploaded.url;
+        file_name = uploaded.name;
+      } catch (err) {
+        alert('Ошибка загрузки аудио');
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
+    }
+
+    const newMessage: Message = {
+      id: tempId,
+      username: user.username,
+      text: textToSend,
+      fileUrl: file_url || undefined,
+      fileName: file_name || undefined,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+
+    setInputText('');
+    setSendError(null);
+    resetAudioRecording();
+
+    if (activePrivateChat) {
+      setPrivateMessages(prev => ({
+        ...prev,
+        [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
+      }));
+      try {
+        await sendPrivateMessage(activePrivateChat, textToSend, file_url, file_name);
+        if (!privateChats.includes(activePrivateChat)) {
+          setPrivateChats(prev => [...prev, activePrivateChat]);
+        }
+      } catch (err: any) {
+        setSendError("Ошибка ЛС: " + err.message);
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== tempId)
+        }));
+      }
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    setIsUploading(true);
+    try {
+      const uploaded = await uploadFile(file);
+      const tempId = `temp-${Date.now()}`;
+      const newMessage: Message = {
+        id: tempId,
+        username: user.username,
+        text: '',
+        fileUrl: uploaded.url,
+        fileName: uploaded.name,
+        timestamp: Math.floor(Date.now() / 1000),
+      };
+
+      if (activePrivateChat) {
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
+        }));
+        await sendPrivateMessage(activePrivateChat, '', uploaded.url, uploaded.name);
+        if (!privateChats.includes(activePrivateChat)) {
+          setPrivateChats(prev => [...prev, activePrivateChat]);
+        }
+      }
+    } catch (err: any) {
+      alert('Ошибка загрузки файла: ' + err.message);
+    }
+    setIsUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(blob);
+        setAudioPreviewUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      timerRef.current = window.setInterval(() => setRecordingTime(prev => prev + 1), 1000);
+    } catch (err) {
+      alert('Не удалось получить доступ к микрофону');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+    }
+    resetAudioRecording();
+  };
+
+  const resetAudioRecording = () => {
+    setAudioBlob(null);
+    if (audioPreviewUrl) { URL.revokeObjectURL(audioPreviewUrl); }
+    setAudioPreviewUrl(null);
+    setRecordingTime(0);
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const startEditing = (msg: Message) => {
+    setEditingMessageId(msg.id);
+    setEditingText(msg.text);
+  };
+
+  const cancelEditing = () => {
+    setEditingMessageId(null);
+    setEditingText('');
+  };
+
+  const saveEdit = async () => {
+    if (!editingMessageId || !editingText.trim()) return;
+    try {
+      if (activePrivateChat) {
+        await editPrivateMessage(editingMessageId, editingText.trim());
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: (prev[activePrivateChat] || []).map(m => m.id === editingMessageId? { ...m, text: editingText.trim(), edited: true } : m)
+        }));
+      }
+      cancelEditing();
+    } catch (err: any) {
+      alert("Ошибка редактирования: " + err.message);
+    }
+  };
+
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!confirm("Удалить это сообщение?")) return;
+    try {
+      if (activePrivateChat) {
+        await deletePrivateMessage(msgId);
+        setPrivateMessages(prev => ({
+          ...prev,
+          [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== msgId)
+        }));
+      }
+    } catch (err: any) {
+      alert("Ошибка удаления: " + err.message);
+    }
+  };
+
+  const handleClearChat = async () => {
+    if (!confirm("Удалить ВСЮ переписку? Это действие нельзя отменить.")) return;
+    try {
+      if (activePrivateChat) {
+        await clearPrivateChat(activePrivateChat);
+        setPrivateMessages(prev => ({ ...prev, [activePrivateChat]: [] }));
+        setPrivateChats(prev => prev.filter(u => u !== activePrivateChat));
+        setActivePrivateChat(null);
+      }
+    } catch (err: any) {
+      alert("Ошибка очистки: " + err.message);
+    }
+  };
+
+  const getFileType = (fileName: string): 'image' | 'audio' | 'video' | 'other' => {
+    const ext = fileName.toLowerCase().split('.').pop() || '';
+    if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) return 'image';
+    if (['mp3', 'wav', 'ogg', 'webm', 'm4a', 'aac'].includes(ext)) return 'audio';
+    if (['mp4', 'webm', 'mov', 'avi', 'mkv'].includes(ext)) return 'video';
+    return 'other';
   };
 
   if (!user) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100">
-        <form onSubmit={handleLogin} className="p-8 bg-white rounded-lg shadow-md w-96">
-          <h2 className="text-2xl font-bold mb-4 text-center">Вход в F.Poste</h2>
-          <input
-            type="text"
-            placeholder="Имя пользователя (мин. 3 символа)"
-            value={usernameInput}
-            onChange={(e) => setUsernameInput(e.target.value)}
-            className="w-full p-2 mb-4 border rounded"
-            required
-            minLength={3}
+      <div className="login-container">
+        <form onSubmit={handleLogin} className="login-form">
+          <h2 style={{ textAlign: 'center', color: 'var(--text-primary)' }}>Вход в F.Poste</h2>
+          <input 
+            type="text" 
+            placeholder="Ник (мин. 5 символов)" 
+            value={usernameInput} 
+            onChange={(e) => setUsernameInput(e.target.value)} 
+            className="input-field" 
+            disabled={isLoading} 
           />
-          <input
-            type="text"
-            placeholder="Отображаемое имя"
-            value={displayNameInput}
-            onChange={(e) => setDisplayNameInput(e.target.value)}
-            className="w-full p-2 mb-4 border rounded"
-            required
-          />
-          <button 
-            type="submit" 
-            disabled={loading}
-            className="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400"
-          >
-            {loading ? 'Входим...' : 'Войти'}
+          <button type="submit" disabled={isLoading} className="btn btn-primary">
+            {isLoading ? 'Вход...' : 'Войти'}
           </button>
         </form>
       </div>
     );
   }
 
+  const currentMessages = activePrivateChat ? (privateMessages[activePrivateChat] || []) : [];
+
   return (
-    <div className="flex h-screen bg-gray-100">
-      <div className="w-1/3 bg-white border-r overflow-y-auto">
-        <div className="p-4 border-b flex justify-between items-center bg-gray-50">
-          <span className="font-bold">{user.displayName}</span>
-          <button onClick={handleLogout} className="text-sm text-red-500">Выйти</button>
+    <div className="app-container">
+      <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="mobile-menu-btn">☰</button>
+
+      <div className={`sidebar ${isSidebarOpen ? 'open' : ''}`}> 
+        <div className="sidebar-header">
+          <span>Привет, <b>{user.username}</b></span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button onClick={() => setIsDarkMode(!isDarkMode)} className="btn-icon" title={isDarkMode ? 'Светлая тема' : 'Темная тема'}>
+              {isDarkMode ? '☀️' : '🌙'}
+            </button>
+            <button onClick={handleLogout} className="btn btn-danger" style={{ fontSize: '0.9rem'}}>Выйти</button>
+          </div>
         </div>
-        <div className="p-2">
-          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Чаты</h3>
-          {chats.length === 0 ? (
-            <p className="text-gray-400 text-sm p-2">Нет активных чатов</p>
+
+        <div className="sidebar-content">
+          <h3>Личные чаты</h3>
+          {privateChats.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.9rem', padding: '10px' }}>Нет личных чатов</div>
           ) : (
-            chats.map(partner => (
-              <div 
-                key={partner}
-                onClick={() => openChat(partner)}
-                className={`p-3 cursor-pointer rounded mb-1 ${activeChat === partner ? 'bg-blue-100' : 'hover:bg-gray-100'}`}
-              >
-                <div className="font-medium">{partner}</div>
-              </div>
-            ))
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {privateChats.map(username => (
+                <li key={username} onClick={() => selectPrivateChat(username)} className={`chat-item ${activePrivateChat === username ? 'active' : ''}`}>👤 {username}</li>
+              ))}
+            </ul>
           )}
+          
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const target = (e.target as any).newChatUser.value.trim();
+            if (target && target !== user.username) {
+              if (!privateChats.includes(target)) setPrivateChats(prev => [...prev, target]);
+              selectPrivateChat(target);
+              (e.target as any).newChatUser.value = '';
+            }
+          }} style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+            <input name="newChatUser" placeholder="Ник для ЛС" className="input-field" />
+            <button type="submit" className="btn" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>OK</button>
+          </form>
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col">
-        {activeChat ? (
-          <>
-            <div className="p-4 border-b bg-white shadow-sm font-bold">
-              Чат с {activeChat}
-            </div>
-            
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-              {messages.map((msg) => {
-                const isMe = msg.username === user.username;
-                return (
-                  <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[70%] p-3 rounded-lg ${isMe ? 'bg-blue-500 text-white' : 'bg-white border'}`}>
-                      {!isMe && <div className="text-xs font-bold text-gray-500 mb-1">{msg.username}</div>}
-                      <div className="text-sm">{msg.text}</div>
-                      {msg.fileUrl && (
-                        <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer" className="block mt-2 text-xs underline">
-                          📎 {msg.fileName || 'Файл'}
-                        </a>
-                      )}
-                      <div className={`text-[10px] mt-1 text-right ${isMe ? 'text-blue-100' : 'text-gray-400'}`}>
-                        {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+      {isSidebarOpen && <div onClick={() => setIsSidebarOpen(false)} className="mobile-backdrop" />}
+
+      <div className="main-area">
+        <div className="chat-header">
+          <div>
+            {activePrivateChat ? `👤 ${activePrivateChat}` : 'Выберите чат'}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {sendError && <div style={{ color: 'var(--error-text)', fontSize: '0.8rem' }}>{sendError}</div>}
+            {activePrivateChat && (
+              <button onClick={handleClearChat} className="btn btn-danger" style={{ fontSize: '0.75rem' }}>🗑️ Очистить</button>
+            )}
+          </div>
+        </div>
+
+        {initError && (
+          <div style={{ padding: '1rem', backgroundColor: 'var(--error-bg)', color: 'var(--error-text)', textAlign: 'center', borderBottom: '1px solid var(--error-border)' }}>
+            {initError} <button onClick={loadInitialData} style={{ marginLeft: '10px', textDecoration: 'underline', background: 'none', border: 'none', color: 'var(--error-text)', cursor: 'pointer' }}>Повторить</button>
+          </div>
+        )}
+
+        <div className="messages-container">
+          {!activePrivateChat ? (
+             <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>Выберите собеседника слева</div>
+          ) : currentMessages.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>Нет сообщений</div>
+          ) : (
+            currentMessages.map(msg => {
+              const isOwn = msg.username === user.username;
+              const isEditing = editingMessageId === msg.id;
+              const label = isOwn ? 'Вы' : activePrivateChat;
+              
+              return (
+                <div key={msg.id} className={`message ${isOwn ? 'own' : 'other'}`}>
+                  <div className="message-author">{label}</div>
+                  
+                  {isEditing ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <textarea value={editingText} onChange={(e) => setEditingText(e.target.value)} className="input-field" style={{ resize: 'vertical', minHeight: '60px' }} autoFocus />
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button onClick={cancelEditing} className="btn" style={{ backgroundColor:'var(--bg-other-message)', color: 'var(--text-primary)' }}>Отмена</button>
+                        <button onClick={saveEdit} className="btn btn-primary">Сохранить</button>
                       </div>
                     </div>
-                  </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
-            </div>
+                  ) : (
+                    <>
+                      {msg.text && <div className="message-text">{msg.text}</div>}
+                      {msg.fileUrl && msg.fileName && (
+                        <div className="message-attachment">
+                          {getFileType(msg.fileName) === 'image' && <img src={msg.fileUrl} alt={msg.fileName} onClick={() => window.open(msg.fileUrl, '_blank')} />}
+                          {getFileType(msg.fileName) === 'audio' && <audio controls src={msg.fileUrl} />}
+                          {getFileType(msg.fileName) === 'video' && <video controls src={msg.fileUrl} />}
+                          {getFileType(msg.fileName) === 'other' && <a href={msg.fileUrl} target="_blank" rel="noopener noreferrer">📎 {msg.fileName}</a>}
+                        </div>
+                      )}
+                      <div className="message-meta">
+                        <span>{new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}{msg.edited && <span style={{ marginLeft: '4px', fontStyle: 'italic' }}>(изменено)</span>}</span>
+                        {isOwn && (
+                          <div className="message-actions">
+                            {!msg.fileUrl && <button onClick={() => startEditing(msg)} title="Редактировать">✏️</button>}
+                            <button onClick={() => handleDeleteMessage(msg.id)} title="Удалить">🗑️</button>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })
+          )}
+          <div ref={messagesEndRef} />
+        </div>
 
-            <div className="p-4 bg-white border-t">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                  placeholder="Написать сообщение..."
-                  className="flex-1 p-2 border rounded focus:outline-none focus:border-blue-500"
-                />
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  className="hidden"
-                />
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploading}
-                  className="p-2 text-gray-500 hover:text-blue-500"
-                >
-                  {uploading ? '⏳' : '📎'}
-                </button>
-                <button 
-                  onClick={handleSend}
-                  disabled={!inputText.trim()}
-                  className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300"
-                >
-                  ➤
-                </button>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400">
-            Выберите чат слева
+        {(isRecording || audioBlob) && (
+          <div className="recording-panel">
+            {isRecording ? (
+              <>
+                <div className="recording-indicator" />
+                <span style={{ fontWeight: 'bold' }}>{formatTime(recordingTime)}</span>
+                <button onClick={cancelRecording} className="btn btn-danger">❌ Отмена</button>
+                <button onClick={stopRecording} className="btn btn-primary">⏹️ Стоп</button>
+              </>
+            ) : audioBlob && (
+              <>
+                <audio controls src={audioPreviewUrl || ''} style={{ flex: 1, maxWidth: '300px' }} />
+                <button onClick={resetAudioRecording} className="btn btn-danger">❌</button>
+              </>
+            )}
           </div>
+        )}
+
+        {activePrivateChat && (
+          <form onSubmit={handleSendMessage} className="input-area">
+            <input type="file" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt" />
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isUploading} className="btn-icon" title="Прикрепить файл">📎</button>
+            <button type="button" onClick={isRecording ? stopRecording : startRecording} disabled={isUploading} className="btn-icon" title={isRecording ? 'Остановить запись' : 'Записать голосовое сообщение'}>{isRecording ? '⏹️' : '🎤'}</button>
+            <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder={`Сообщение для ${activePrivateChat}...`} className="input-field" disabled={isUploading} />
+            <button type="submit" disabled={(!inputText.trim() && !audioBlob) || isUploading} className="send-btn">{isUploading ? '⏳' : '➤'}</button>
+          </form>
         )}
       </div>
     </div>
   );
 }
-
-export default App;
