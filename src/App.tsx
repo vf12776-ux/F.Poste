@@ -8,9 +8,13 @@ import {
   uploadFile, 
   subscribeToPrivateMessages,
   unsubscribeFromChannel,
-  getToken,
   clearToken
 } from './api';
+
+interface User {
+  username: string;
+  displayName: string;
+}
 
 interface Message {
   id: string;
@@ -24,7 +28,7 @@ interface Message {
 }
 
 function App() {
-  const [user, setUser] = useState<{ username: string; displayName: string } | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [usernameInput, setUsernameInput] = useState('');
   const [displayNameInput, setDisplayNameInput] = useState('');
   const [chats, setChats] = useState<string[]>([]);
@@ -38,7 +42,6 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const subscriptionRef = useRef<any>(null);
 
-  // Загрузка пользователя при старте
   useEffect(() => {
     const init = async () => {
       const me = await getMe();
@@ -50,7 +53,6 @@ function App() {
     init();
   }, []);
 
-  // Подписка на новые сообщения
   useEffect(() => {
     if (user && activeChat) {
       if (subscriptionRef.current) {
@@ -58,7 +60,7 @@ function App() {
       }
       
       subscriptionRef.current = subscribeToPrivateMessages(user.username, (newMsg: any) => {
-        if ((newMsg.from_username === activeChat || newMsg.to_username === activeChat)) {
+        if (newMsg.from_username === activeChat || newMsg.to_username === activeChat) {
           setMessages(prev => [...prev, {
             id: newMsg.id,
             username: newMsg.from_username,
@@ -77,7 +79,6 @@ function App() {
     };
   }, [user, activeChat]);
 
-  // Автопрокрутка вниз
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -193,7 +194,6 @@ function App() {
 
   return (
     <div className="flex h-screen bg-gray-100">
-      {/* Sidebar */}
       <div className="w-1/3 bg-white border-r overflow-y-auto">
         <div className="p-4 border-b flex justify-between items-center bg-gray-50">
           <span className="font-bold">{user.displayName}</span>
@@ -217,7 +217,6 @@ function App() {
         </div>
       </div>
 
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {activeChat ? (
           <>
@@ -283,7 +282,7 @@ function App() {
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-400">
-            Выберите чат слева или начните новый
+            Выберите чат слева
           </div>
         )}
       </div>
