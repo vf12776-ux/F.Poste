@@ -4,6 +4,7 @@ import {
   listPrivateChats, loadPrivateHistory, sendPrivateMessage, editPrivateMessage, subscribeToPrivateMessages,
   deletePrivateMessage, clearPrivateChat, uploadFile, unsubscribeFromChannel
 } from './api';
+
 interface User { username: string; display_name?: string }
 interface Message { 
   id: string; 
@@ -369,6 +370,9 @@ export default function App() {
     return 'other';
   };
 
+    const currentMessages = activePrivateChat ? (privateMessages[activePrivateChat] || []) : [];
+    
+
   if (!user) {
     return (
       <div className="login-container">
@@ -389,8 +393,6 @@ export default function App() {
       </div>
     );
   }
-
-  const currentMessages = activePrivateChat ? (privateMessages[activePrivateChat] || []) : [];
 
   return (
     <div className="app-container">
