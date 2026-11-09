@@ -50,14 +50,33 @@ export async function loadPrivateHistory(withUser: string) {
   return Array.isArray(data) ? data : []
 }
 
-export async function sendPrivateMessage(to: string, text: string, fileUrl?: string, fileName?: string) {
+export async function sendPrivateMessage(chatId: string, content: string, type: 'text' | 'file' | 'voice' = 'text', fileUrl?: string) {
   const token = getToken()
+  
+  // Проверяем, есть ли токен, чтобы не отправлять пустой запрос
+  if (!token) throw new Error('No auth token found')
+
   const res = await fetch(`${EDGE_FUNCTION_URL}/send-private-message`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`, 'apikey': SUPABASE_ANON_KEY },
-    body: JSON.stringify({ to, text, fileUrl: fileUrl || "", fileName: fileName || "" }),
+    headers: { 
+      'Content-Type': 'application/json', 
+      'Authorization': `Bearer ${token}`, 
+      'apikey': SUPABASE_ANON_KEY 
+    },
+    body: JSON.stringify({ 
+      chat_id: chatId,   // <-- Важно: теперь мы шлем ID чата, а не username
+      content: content,  // <-- Важно: текст сообщения
+      type: type,        // <-- Важно: тип (text, file, voice)
+      file_url: fileUrl || null 
+    }),
   })
-  if (!res.ok) throw new Error('Failed to send private message')
+
+  if (!res.ok) {
+    // Пытаемся получить текст ошибки от сервера, чтобы ты видел причину в консоли
+    const errorData = await res.json().catch(() => ({}))
+    throw new Error(errorData.error || `Failed to send private message (Status: ${res.status})`)
+  }
+  
   return res.json()
 }
 

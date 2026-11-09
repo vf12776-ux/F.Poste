@@ -202,7 +202,8 @@ export default function App() {
         [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
       }));
       try {
-        await sendPrivateMessage(activePrivateChat, textToSend, file_url, file_name);
+        // Если есть файл, тип 'file', иначе 'text'. Четвертый аргумент - только URL.
+await sendPrivateMessage(activePrivateChat, textToSend, file_url ? 'file' : 'text', file_url);
         if (!privateChats.includes(activePrivateChat)) {
           setPrivateChats(prev => [...prev, activePrivateChat]);
         }
@@ -238,7 +239,8 @@ export default function App() {
           ...prev,
           [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
         }));
-        await sendPrivateMessage(activePrivateChat, '', uploaded.url, uploaded.name);
+        // Тип 'voice', текст пустой, передаем URL файла
+await sendPrivateMessage(activePrivateChat, '', 'voice', uploaded.url);
         if (!privateChats.includes(activePrivateChat)) {
           setPrivateChats(prev => [...prev, activePrivateChat]);
         }
