@@ -65,8 +65,12 @@ export default function App() {
     if (token) {
       try {
         const userData = await getMe();
-        setUser(userData);
-        await loadInitialData();
+        if (userData) {
+          setUser(userData);
+          await loadInitialData();
+        } else {
+          clearToken();
+        }
       } catch (e) {
         console.error("Auth check failed", e);
         clearToken();
@@ -77,15 +81,16 @@ export default function App() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (usernameInput.trim().length < 5) return alert('Минимум 5 символов');
+    if (usernameInput.trim().length < 3) return alert('Минимум 3 символа');
     setIsLoading(true);
     setInitError(null);
     setSendError(null);
     try {
+      // Передаем ник и отображаемое имя
       const data = await login(usernameInput.trim(), usernameInput.trim());
       if (data.token) {
         setToken(data.token);
-        setUser({ username: data.username || usernameInput.trim(), display_name: data.displayName});
+        setUser({ username: data.user?.user_metadata?.username || usernameInput.trim(), display_name: data.user?.user_metadata?.display_name });
         await loadInitialData();
       }
     } catch (err: any) {
@@ -99,6 +104,7 @@ export default function App() {
     setUser(null);
     setPrivateMessages({});
     setPrivateChats([]);
+    setActivePrivateChat(null);
   };
 
   const loadInitialData = async () => {
@@ -122,31 +128,49 @@ export default function App() {
   };
 
   // Подписка на новые приватные сообщения в реальном времени
+    // Подписка на новые приватные сообщения в реальном времени
   useEffect(() => {
     if (!activePrivateChat || !user?.username) return;
 
     const subscription = subscribeToPrivateMessages(user.username, (newMessage) => {
-      setPrivateMessages(prev => {
-        const chatMessages = prev[activePrivateChat] || [];
-        if (chatMessages.some(m => m.id === newMessage.id)) return prev;
-        return {
-          ...prev,
-          [activePrivateChat]: [...chatMessages, {
-            id: newMessage.id,
-            username: newMessage.from_username,
-            text: newMessage.text,
-            timestamp: newMessage.timestamp,
-            fileUrl: newMessage.file_url || '',
-            fileName: newMessage.file_name || '',
-          }]
-        };
-      });
+      // Проверяем, относится ли сообщение к текущему активному чату
+      // newMessage.from_username - это ник отправителя
+      const isRelevant = 
+        newMessage.from_username === activePrivateChat || 
+        newMessage.to_username === activePrivateChat;
+
+      if (isRelevant) {
+        setPrivateMessages(prev => {
+          const chatMessages = prev[activePrivateChat] || [];
+          if (chatMessages.some(m => m.id === newMessage.id)) return prev;
+          
+          // Определяем автора: если ник отправителя совпадает с нашим - значит это мы
+          const msgUsername = newMessage.from_username === user.username ? user.username : newMessage.from_username;
+
+          return {
+            ...prev,
+            [activePrivateChat]: [...chatMessages, {
+              id: newMessage.id,
+              username: msgUsername,
+              text: newMessage.content, 
+              timestamp: new Date(newMessage.created_at).getTime() / 1000,
+              fileUrl: newMessage.file_url || '',
+              fileName: newMessage.file_name || '',
+            }]
+          };
+        });
+      }
+      
+      // Если пришел новый чат от кого-то другого, добавляем его в список
+      if (newMessage.from_username !== user.username && !privateChats.includes(newMessage.from_username)) {
+         setPrivateChats(prev => [...prev, newMessage.from_username]);
+      }
     });
 
     return () => {
       unsubscribeFromChannel(subscription);
     };
-  }, [activePrivateChat, user?.username]);
+  }, [activePrivateChat, user?.username, privateChats]);
 
   const selectPrivateChat = async (username: string) => {
     setActivePrivateChat(username);
@@ -161,15 +185,17 @@ export default function App() {
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!inputText.trim() && !audioBlob) || !user) return;
+    if ((!inputText.trim() && !audioBlob) || !user || !activePrivateChat) return;
 
     const tempId = `temp-${Date.now()}`;
     const textToSend = inputText.trim();
     let file_url = '';
     let file_name = '';
+    let msgType: 'text' | 'file' | 'voice' = 'text';
 
     if (audioBlob) {
       setIsUploading(true);
+      msgType = 'voice';
       try {
         const audioFile = new File([audioBlob], `voice_${Date.now()}.webm`, { type: 'audio/webm' });
         const uploaded = await uploadFile(audioFile);
@@ -181,6 +207,8 @@ export default function App() {
         return;
       }
       setIsUploading(false);
+    } else if (textToSend) {
+       // Проверка на наличие файла в тексте (если бы была логика drag&drop), пока просто текст
     }
 
     const newMessage: Message = {
@@ -196,30 +224,33 @@ export default function App() {
     setSendError(null);
     resetAudioRecording();
 
-    if (activePrivateChat) {
+    // Добавляем в UI оптимистично
+    setPrivateMessages(prev => ({
+      ...prev,
+      [activePrivateChat!]: [...(prev[activePrivateChat!] || []), newMessage]
+    }));
+
+    try {
+      // Отправляем на сервер: Ник получателя, текст, тип, URL
+      await sendPrivateMessage(activePrivateChat, textToSend, msgType, file_url);
+      
+      // Добавляем чат в список, если его не было
+      if (!privateChats.includes(activePrivateChat)) {
+        setPrivateChats(prev => [...prev, activePrivateChat!]);
+      }
+    } catch (err: any) {
+      setSendError("Ошибка ЛС: " + err.message);
+      // Удаляем из UI при ошибке
       setPrivateMessages(prev => ({
         ...prev,
-        [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
+        [activePrivateChat!]: (prev[activePrivateChat!] || []).filter(m => m.id !== tempId)
       }));
-      try {
-        // Если есть файл, тип 'file', иначе 'text'. Четвертый аргумент - только URL.
-await sendPrivateMessage(activePrivateChat, textToSend, file_url ? 'file' : 'text', file_url);
-        if (!privateChats.includes(activePrivateChat)) {
-          setPrivateChats(prev => [...prev, activePrivateChat]);
-        }
-      } catch (err: any) {
-        setSendError("Ошибка ЛС: " + err.message);
-        setPrivateMessages(prev => ({
-          ...prev,
-          [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== tempId)
-        }));
-      }
     }
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file || !user || !activePrivateChat) return;
 
     setIsUploading(true);
     try {
@@ -234,16 +265,16 @@ await sendPrivateMessage(activePrivateChat, textToSend, file_url ? 'file' : 'tex
         timestamp: Math.floor(Date.now() / 1000),
       };
 
-      if (activePrivateChat) {
-        setPrivateMessages(prev => ({
-          ...prev,
-          [activePrivateChat]: [...(prev[activePrivateChat] || []), newMessage]
-        }));
-        // Тип 'voice', текст пустой, передаем URL файла
-await sendPrivateMessage(activePrivateChat, '', 'voice', uploaded.url);
-        if (!privateChats.includes(activePrivateChat)) {
-          setPrivateChats(prev => [...prev, activePrivateChat]);
-        }
+      setPrivateMessages(prev => ({
+        ...prev,
+        [activePrivateChat!]: [...(prev[activePrivateChat!] || []), newMessage]
+      }));
+
+      // Отправляем как файл
+      await sendPrivateMessage(activePrivateChat, '', 'file', uploaded.url);
+      
+      if (!privateChats.includes(activePrivateChat)) {
+        setPrivateChats(prev => [...prev, activePrivateChat!]);
       }
     } catch (err: any) {
       alert('Ошибка загрузки файла: ' + err.message);
@@ -322,13 +353,11 @@ await sendPrivateMessage(activePrivateChat, '', 'voice', uploaded.url);
   const saveEdit = async () => {
     if (!editingMessageId || !editingText.trim()) return;
     try {
-      if (activePrivateChat) {
-        await editPrivateMessage(editingMessageId, editingText.trim());
-        setPrivateMessages(prev => ({
-          ...prev,
-          [activePrivateChat]: (prev[activePrivateChat] || []).map(m => m.id === editingMessageId? { ...m, text: editingText.trim(), edited: true } : m)
-        }));
-      }
+      await editPrivateMessage(editingMessageId, editingText.trim());
+      setPrivateMessages(prev => ({
+        ...prev,
+        [activePrivateChat!]: (prev[activePrivateChat!] || []).map(m => m.id === editingMessageId? { ...m, text: editingText.trim(), edited: true } : m)
+      }));
       cancelEditing();
     } catch (err: any) {
       alert("Ошибка редактирования: " + err.message);
@@ -338,13 +367,11 @@ await sendPrivateMessage(activePrivateChat, '', 'voice', uploaded.url);
   const handleDeleteMessage = async (msgId: string) => {
     if (!confirm("Удалить это сообщение?")) return;
     try {
-      if (activePrivateChat) {
-        await deletePrivateMessage(msgId);
-        setPrivateMessages(prev => ({
-          ...prev,
-          [activePrivateChat]: (prev[activePrivateChat] || []).filter(m => m.id !== msgId)
-        }));
-      }
+      await deletePrivateMessage(msgId);
+      setPrivateMessages(prev => ({
+        ...prev,
+        [activePrivateChat!]: (prev[activePrivateChat!] || []).filter(m => m.id !== msgId)
+      }));
     } catch (err: any) {
       alert("Ошибка удаления: " + err.message);
     }
@@ -372,9 +399,8 @@ await sendPrivateMessage(activePrivateChat, '', 'voice', uploaded.url);
     return 'other';
   };
 
-    const currentMessages = activePrivateChat ? (privateMessages[activePrivateChat] || []) : [];
+  const currentMessages = activePrivateChat ? (privateMessages[activePrivateChat] || []) : [];
     
-
   if (!user) {
     return (
       <div className="login-container">
@@ -382,7 +408,7 @@ await sendPrivateMessage(activePrivateChat, '', 'voice', uploaded.url);
           <h2 style={{ textAlign: 'center', color: 'var(--text-primary)' }}>Вход в F.Poste</h2>
           <input 
             type="text" 
-            placeholder="Ник (мин. 5 символов)" 
+            placeholder="Ник (мин. 3 символа)" 
             value={usernameInput} 
             onChange={(e) => setUsernameInput(e.target.value)} 
             className="input-field" 
